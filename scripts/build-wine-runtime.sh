@@ -125,6 +125,16 @@ moltenvk_source_dir="$work_dir/moltenvk"
 archive="$output_dir/${runtime_id}.tar.gz"
 manifest="$output_dir/WhiskyWineVersion.plist"
 
+report_failure() {
+    local status=$?
+    for log in "$work_dir"/*.log(N); do
+        print -u2 -- "\nLast 200 lines of $log:"
+        tail -n 200 "$log" >&2
+    done
+    exit "$status"
+}
+trap report_failure ERR
+
 if [[ -e "$work_dir" ]]; then
     print -u2 "Work directory already exists: $work_dir"
     exit 1
