@@ -196,10 +196,10 @@ if $graphics_runtime; then
     ) > "$work_dir/moltenvk.log" 2>&1
 
     mkdir "$dxvk_output_dir"
-    meson setup "$work_dir/dxvk-x64" --cross-file "$dxvk_source_dir/build-win64.txt" \
+    meson setup "$work_dir/dxvk-x64" "$dxvk_source_dir" --cross-file "$dxvk_source_dir/build-win64.txt" \
         --buildtype release --prefix "$dxvk_output_dir/x64" > "$work_dir/dxvk-x64.log" 2>&1
     ninja -C "$work_dir/dxvk-x64" install >> "$work_dir/dxvk-x64.log" 2>&1
-    meson setup "$work_dir/dxvk-x32" --cross-file "$dxvk_source_dir/build-win32.txt" \
+    meson setup "$work_dir/dxvk-x32" "$dxvk_source_dir" --cross-file "$dxvk_source_dir/build-win32.txt" \
         --buildtype release --prefix "$dxvk_output_dir/x32" > "$work_dir/dxvk-x32.log" 2>&1
     ninja -C "$work_dir/dxvk-x32" install >> "$work_dir/dxvk-x32.log" 2>&1
 
