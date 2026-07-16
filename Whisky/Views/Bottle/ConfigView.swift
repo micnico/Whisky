@@ -33,6 +33,7 @@ struct ConfigView: View {
     @State private var dpiConfig: Int = 96
     @State private var winVersionLoadingState: LoadingState = .loading
     @State private var buildVersionLoadingState: LoadingState = .loading
+    @State private var runtimeMigrationLoadingState: LoadingState = .success
     @State private var retinaModeLoadingState: LoadingState = .loading
     @State private var dpiConfigLoadingState: LoadingState = .loading
     @State private var dpiSheetPresented: Bool = false
@@ -43,7 +44,7 @@ struct ConfigView: View {
     var body: some View {
         Form {
             Section("config.title.wine", isExpanded: $wineSectionExpanded) {
-                SettingItemView(title: "config.runtime", loadingState: .success) {
+                SettingItemView(title: "config.runtime", loadingState: runtimeMigrationLoadingState) {
                     Picker("config.runtime", selection: runtimeBinding) {
                         ForEach(runtimeIDs, id: \.self) { runtimeID in
                             Text(runtimeID)
@@ -290,8 +291,16 @@ private extension ConfigView {
             set: { runtimeID in
                 guard WhiskyWineInstaller.isRuntimeInstalled(id: runtimeID),
                       bottle.settings.runtimeID != runtimeID else { return }
-                try? Wine.killBottle(bottle: bottle)
-                bottle.settings.runtimeID = runtimeID
+                runtimeMigrationLoadingState = .modifying
+                Task(priority: .userInitiated) {
+                    do {
+                        _ = try await Wine.migrateBottle(bottle, to: runtimeID)
+                        runtimeMigrationLoadingState = .success
+                    } catch {
+                        print("Failed to migrate Bottle runtime: \(error)")
+                        runtimeMigrationLoadingState = .failed
+                    }
+                }
             }
         )
     }
@@ -359,40 +368,5 @@ struct DPIConfigSheetView: View {
         }
         .padding()
         .frame(width: ViewWidth.medium, height: 240)
-    }
-}
-
-struct SettingItemView<Content: View>: View {
-    let title: String.LocalizationValue
-    let loadingState: LoadingState
-    @ViewBuilder var content: () -> Content
-
-    @Namespace private var viewId
-    @Namespace private var progressViewId
-
-    var body: some View {
-        HStack {
-            Text(String(localized: title))
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack {
-                switch loadingState {
-                case .loading, .modifying:
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .controlSize(.small)
-                        .matchedGeometryEffect(id: progressViewId, in: viewId)
-                case .success:
-                    content()
-                        .labelsHidden()
-                        .disabled(loadingState != .success)
-                case .failed:
-                    Text("config.notAvailable")
-                        .font(.caption).foregroundStyle(.red)
-                        .multilineTextAlignment(.trailing)
-                }
-            }.animation(.default, value: loadingState)
-        }
     }
 }
