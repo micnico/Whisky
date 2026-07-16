@@ -146,7 +146,7 @@ struct InstallStatusView: View {
 
     func uninstall() {
         if name == "WhiskyWine" {
-            WhiskyWineInstaller.uninstall()
+            WhiskyWineInstaller.uninstallAllRuntimes()
         }
 
         shouldCheckInstallStatus.toggle()

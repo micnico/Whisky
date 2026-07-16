@@ -23,6 +23,7 @@ import SemanticVersion
 
 struct ContentView: View {
     @AppStorage("selectedBottleURL") private var selectedBottleURL: URL?
+    @AppStorage("checkWhiskyWineUpdates") private var checkWhiskyWineUpdates = true
     @EnvironmentObject var bottleVM: BottleVM
     @Binding var showSetup: Bool
 
@@ -104,26 +105,22 @@ struct ContentView: View {
             if !WhiskyWineInstaller.isWhiskyWineInstalled() {
                 showSetup = true
             }
-            let task = Task.detached {
-                return await WhiskyWineInstaller.shouldUpdateWhiskyWine()
-            }
-            let updateInfo = await task.value
-            if updateInfo.0 {
-                let alert = NSAlert()
-                alert.messageText = String(localized: "update.whiskywine.title")
-                alert.informativeText = String(format: String(localized: "update.whiskywine.description"),
-                                               String(WhiskyWineInstaller.whiskyWineVersion()
-                                                      ?? SemanticVersion(0, 0, 0)),
-                                               String(updateInfo.1))
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: String(localized: "update.whiskywine.update"))
-                alert.addButton(withTitle: String(localized: "button.removeAlert.cancel"))
+            if checkWhiskyWineUpdates {
+                let updateInfo = await WhiskyWineInstaller.shouldUpdateWhiskyWine()
+                if updateInfo.0 {
+                    let alert = NSAlert()
+                    alert.messageText = String(localized: "update.whiskywine.title")
+                    alert.informativeText = String(format: String(localized: "update.whiskywine.description"),
+                                                   String(WhiskyWineInstaller.whiskyWineVersion()
+                                                          ?? SemanticVersion(0, 0, 0)),
+                                                   String(updateInfo.1))
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: String(localized: "update.whiskywine.update"))
+                    alert.addButton(withTitle: String(localized: "button.removeAlert.cancel"))
 
-                let response = alert.runModal()
-
-                if response == .alertFirstButtonReturn {
-                    WhiskyWineInstaller.uninstall()
-                    showSetup = true
+                    if alert.runModal() == .alertFirstButtonReturn {
+                        showSetup = true
+                    }
                 }
             }
         }

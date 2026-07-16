@@ -21,7 +21,9 @@ import WhiskyKit
 
 struct WhiskyWineInstallView: View {
     @State var installing: Bool = true
+    @State var errorMessage: String?
     @Binding var tarLocation: URL
+    @Binding var release: WhiskyWineRelease?
     @Binding var path: [SetupStage]
     @Binding var showSetup: Bool
 
@@ -35,7 +37,9 @@ struct WhiskyWineInstallView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
-                if installing {
+                if let errorMessage {
+                    Text(errorMessage).foregroundStyle(.red)
+                } else if installing {
                     ProgressView()
                         .progressViewStyle(.circular)
                         .frame(width: 80)
@@ -51,13 +55,25 @@ struct WhiskyWineInstallView: View {
         }
         .frame(width: 400, height: 200)
         .onAppear {
+            let downloadedRelease = release
+            let archive = tarLocation
             Task.detached {
-                await WhiskyWineInstaller.install(from: tarLocation)
-                await MainActor.run {
-                    installing = false
+                do {
+                    if let downloadedRelease {
+                        try WhiskyWineInstaller.install(release: downloadedRelease, from: archive)
+                    } else {
+                        try WhiskyWineInstaller.install(from: archive)
+                    }
+                    await MainActor.run {
+                        installing = false
+                    }
+                    await proceed()
+                } catch {
+                    await MainActor.run {
+                        installing = false
+                        errorMessage = error.localizedDescription
+                    }
                 }
-                sleep(2)
-                await proceed()
             }
         }
     }

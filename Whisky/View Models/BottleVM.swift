@@ -54,6 +54,7 @@ final class BottleVM: ObservableObject, @unchecked Sendable {
 
                 bottle.settings.windowsVersion = winVersion
                 bottle.settings.name = bottleName
+                bottle.settings.runtimeID = WhiskyWineInstaller.activeRuntimeID()
                 try await Wine.changeWinVersion(bottle: bottle, win: winVersion)
                 let wineVer = try await Wine.wineVersion()
                 bottle.settings.wineVersion = SemanticVersion(wineVer) ?? SemanticVersion(0, 0, 0)

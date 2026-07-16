@@ -92,6 +92,7 @@ public enum EnhancedSync: Codable, Equatable {
 public struct BottleWineConfig: Codable, Equatable {
     static let defaultWineVersion = SemanticVersion(7, 7, 0)
     var wineVersion: SemanticVersion = Self.defaultWineVersion
+    var runtimeID: String = "legacy"
     var windowsVersion: WinVersion = .win10
     var enhancedSync: EnhancedSync = .msync
     var avxEnabled: Bool = false
@@ -102,6 +103,7 @@ public struct BottleWineConfig: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.wineVersion = try container.decodeIfPresent(SemanticVersion.self, forKey: .wineVersion) ?? Self.defaultWineVersion
+        self.runtimeID = try container.decodeIfPresent(String.self, forKey: .runtimeID) ?? "legacy"
         self.windowsVersion = try container.decodeIfPresent(WinVersion.self, forKey: .windowsVersion) ?? .win10
         self.enhancedSync = try container.decodeIfPresent(EnhancedSync.self, forKey: .enhancedSync) ?? .msync
         self.avxEnabled = try container.decodeIfPresent(Bool.self, forKey: .avxEnabled) ?? false
@@ -182,6 +184,12 @@ public struct BottleSettings: Codable, Equatable {
         set { wineConfig.wineVersion = newValue }
     }
 
+    /// The runtime selected for this Bottle. Existing metadata defaults to `legacy`.
+    public var runtimeID: String {
+        get { return wineConfig.runtimeID }
+        set { wineConfig.runtimeID = newValue }
+    }
+
     /// The version of windows used by this bottle
     public var windowsVersion: WinVersion {
         get { return wineConfig.windowsVersion }
@@ -243,8 +251,7 @@ public struct BottleSettings: Codable, Equatable {
     @discardableResult
     public static func decode(from metadataURL: URL) throws -> BottleSettings {
         guard FileManager.default.fileExists(atPath: metadataURL.path(percentEncoded: false)) else {
-            let decoder = PropertyListDecoder()
-            let settings = try decoder.decode(BottleSettings.self, from: Data(contentsOf: metadataURL))
+            let settings = BottleSettings()
             try settings.encode(to: metadataURL)
             return settings
         }
@@ -256,13 +263,6 @@ public struct BottleSettings: Codable, Equatable {
         guard settings.fileVersion == BottleSettings.defaultFileVersion else {
             Logger.wineKit.warning("Invalid file version `\(settings.fileVersion)`")
             settings = BottleSettings()
-            try settings.encode(to: metadataURL)
-            return settings
-        }
-
-        if settings.wineConfig.wineVersion != BottleWineConfig().wineVersion {
-            Logger.wineKit.warning("Bottle has a different wine version `\(settings.wineConfig.wineVersion)`")
-            settings.wineConfig.wineVersion = BottleWineConfig().wineVersion
             try settings.encode(to: metadataURL)
             return settings
         }
@@ -293,7 +293,7 @@ public struct BottleSettings: Codable, Equatable {
             }
         }
 
-        if dxvkAsync {
+        if dxvk && dxvkAsync {
             wineEnv.updateValue("1", forKey: "DXVK_ASYNC")
         }
 
