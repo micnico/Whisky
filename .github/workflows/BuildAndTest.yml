@@ -1,0 +1,21 @@
+name: Build and Test
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - name: Build Whisky
+        run: >-
+          xcodebuild -project Whisky.xcodeproj -scheme Whisky -configuration Debug
+          -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build
+      - name: Test WhiskyKit
+        run: swift test
+        working-directory: WhiskyKit

@@ -27,7 +27,9 @@ struct WhiskyWineDownloadView: View {
     @State private var downloadTask: URLSessionDownloadTask?
     @State private var observation: NSKeyValueObservation?
     @State private var startTime: Date?
+    @State private var errorMessage: String?
     @Binding var tarLocation: URL
+    @Binding var release: WhiskyWineRelease?
     @Binding var path: [SetupStage]
     var body: some View {
         VStack {
@@ -39,62 +41,34 @@ struct WhiskyWineDownloadView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
-                VStack {
-                    ProgressView(value: fractionProgress, total: 1)
-                    HStack {
-                        HStack {
-                            Text(String(format: String(localized: "setup.whiskywine.progress"),
-                                        formatBytes(bytes: completedBytes),
-                                        formatBytes(bytes: totalBytes)))
-                            + Text(String(" "))
-                            + (shouldShowEstimate() ?
-                               Text(String(format: String(localized: "setup.whiskywine.eta"),
-                                           formatRemainingTime(remainingBytes: totalBytes - completedBytes)))
-                               : Text(String()))
-                            Spacer()
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                    Button("setup.retry", action: startDownload)
+                } else {
+                    VStack {
+                        if totalBytes > 0 {
+                            ProgressView(value: fractionProgress, total: 1)
+                        } else {
+                            ProgressView()
                         }
-                        .font(.subheadline)
-                        .monospacedDigit()
+                        HStack {
+                            HStack {
+                                progressText
+                                Spacer()
+                            }
+                            .font(.subheadline)
+                            .monospacedDigit()
+                        }
                     }
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
                 Spacer()
             }
             Spacer()
         }
         .frame(width: 400, height: 200)
-        .onAppear {
-            Task {
-                if let url: URL = URL(string: "https://data.getwhisky.app/Wine/Libraries.tar.gz") {
-                    downloadTask = URLSession(configuration: .ephemeral).downloadTask(with: url) { url, _, _ in
-                        Task.detached {
-                            await MainActor.run {
-                                if let url = url {
-                                    tarLocation = url
-                                    proceed()
-                                }
-                            }
-                        }
-                    }
-                    observation = downloadTask?.observe(\.countOfBytesReceived) { task, _ in
-                        Task {
-                            await MainActor.run {
-                                let currentTime = Date()
-                                let elapsedTime = currentTime.timeIntervalSince(startTime ?? currentTime)
-                                if completedBytes > 0 {
-                                    downloadSpeed = Double(completedBytes) / elapsedTime
-                                }
-                                totalBytes = task.countOfBytesExpectedToReceive
-                                completedBytes = task.countOfBytesReceived
-                                fractionProgress = Double(completedBytes) / Double(totalBytes)
-                            }
-                        }
-                    }
-                    startTime = Date()
-                    downloadTask?.resume()
-                }
-            }
-        }
+        .onAppear(perform: startDownload)
     }
 
     func formatBytes(bytes: Int64) -> String {
@@ -119,6 +93,55 @@ struct WhiskyWineDownloadView: View {
             return formatter.string(from: TimeInterval(remainingTimeInSeconds)) ?? ""
         } else {
             return ""
+        }
+    }
+
+    var progressText: Text {
+        let progress = totalBytes > 0
+            ? Text(String(format: String(localized: "setup.whiskywine.progress"),
+                        formatBytes(bytes: completedBytes), formatBytes(bytes: totalBytes)))
+            : Text(formatBytes(bytes: completedBytes))
+        return progress + Text(" ") + (shouldShowEstimate()
+            ? Text(String(format: String(localized: "setup.whiskywine.eta"),
+                        formatRemainingTime(remainingBytes: totalBytes - completedBytes)))
+            : Text(""))
+    }
+
+    func startDownload() {
+        downloadTask?.cancel()
+        errorMessage = nil
+        fractionProgress = 0
+        completedBytes = 0
+        totalBytes = 0
+        downloadSpeed = 0
+        Task {
+            release = await WhiskyWineInstaller.latestRelease()
+            let url = release?.archiveURL ?? WhiskyWineInstaller.legacyArchiveURL
+            let task = URLSession(configuration: .ephemeral).downloadTask(with: url) { url, _, error in
+                Task { @MainActor in
+                    guard let url else {
+                        errorMessage = error?.localizedDescription ?? String(localized: "alert.message")
+                        return
+                    }
+                    tarLocation = url
+                    proceed()
+                }
+            }
+            downloadTask = task
+            observation = task.observe(\.countOfBytesReceived) { task, _ in
+                Task { @MainActor in
+                    let currentTime = Date()
+                    let elapsedTime = currentTime.timeIntervalSince(startTime ?? currentTime)
+                    if completedBytes > 0 {
+                        downloadSpeed = Double(completedBytes) / elapsedTime
+                    }
+                    totalBytes = max(task.countOfBytesExpectedToReceive, 0)
+                    completedBytes = task.countOfBytesReceived
+                    fractionProgress = totalBytes > 0 ? Double(completedBytes) / Double(totalBytes) : 0
+                }
+            }
+            startTime = Date()
+            task.resume()
         }
     }
 

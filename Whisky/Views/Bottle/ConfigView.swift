@@ -43,6 +43,13 @@ struct ConfigView: View {
     var body: some View {
         Form {
             Section("config.title.wine", isExpanded: $wineSectionExpanded) {
+                SettingItemView(title: "config.runtime", loadingState: .success) {
+                    Picker("config.runtime", selection: runtimeBinding) {
+                        ForEach(runtimeIDs, id: \.self) { runtimeID in
+                            Text(runtimeID)
+                        }
+                    }
+                }
                 SettingItemView(title: "config.winVersion", loadingState: winVersionLoadingState) {
                     Picker("config.winVersion", selection: $bottle.settings.windowsVersion) {
                         ForEach(WinVersion.allCases.reversed(), id: \.self) {
@@ -121,17 +128,18 @@ struct ConfigView: View {
                 Toggle(isOn: $bottle.settings.dxvk) {
                     Text("config.dxvk")
                 }
+                .disabled(!dxvkSupported && !bottle.settings.dxvk)
                 Toggle(isOn: $bottle.settings.dxvkAsync) {
                     Text("config.dxvk.async")
                 }
-                .disabled(!bottle.settings.dxvk)
+                .disabled(!bottle.settings.dxvk || !dxvkSupported)
                 Picker("config.dxvkHud", selection: $bottle.settings.dxvkHud) {
                     Text("config.dxvkHud.full").tag(DXVKHUD.full)
                     Text("config.dxvkHud.partial").tag(DXVKHUD.partial)
                     Text("config.dxvkHud.fps").tag(DXVKHUD.fps)
                     Text("config.dxvkHud.off").tag(DXVKHUD.off)
                 }
-                .disabled(!bottle.settings.dxvk)
+                .disabled(!bottle.settings.dxvk || !dxvkSupported)
             }
             Section("config.title.metal", isExpanded: $metalSectionExpanded) {
                 Toggle(isOn: $bottle.settings.metalHud) {
@@ -263,6 +271,29 @@ struct ConfigView: View {
                 buildVersionLoadingState = .failed
             }
         }
+    }
+}
+
+private extension ConfigView {
+    var dxvkSupported: Bool {
+        WhiskyWineInstaller.supportsDXVK(id: bottle.settings.runtimeID)
+    }
+
+    var runtimeIDs: [String] {
+        let installed = WhiskyWineInstaller.installedRuntimeIDs()
+        return installed.contains(bottle.settings.runtimeID) ? installed : [bottle.settings.runtimeID] + installed
+    }
+
+    var runtimeBinding: Binding<String> {
+        Binding(
+            get: { bottle.settings.runtimeID },
+            set: { runtimeID in
+                guard WhiskyWineInstaller.isRuntimeInstalled(id: runtimeID),
+                      bottle.settings.runtimeID != runtimeID else { return }
+                try? Wine.killBottle(bottle: bottle)
+                bottle.settings.runtimeID = runtimeID
+            }
+        )
     }
 }
 

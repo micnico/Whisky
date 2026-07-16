@@ -43,6 +43,8 @@ public class Tar {
     }
 
     public static func untar(tarBall: URL, toURL: URL) throws {
+        try validateArchivePaths(tarBall: tarBall)
+
         let process = Process()
         let pipe = Pipe()
 
@@ -60,6 +62,31 @@ public class Tar {
             if status != 0 {
                 throw outputString
             }
+        }
+    }
+
+    static func isSafeArchivePath(_ path: String) -> Bool {
+        !path.isEmpty && !path.hasPrefix("/") &&
+            !path.split(separator: "/").contains { $0 == "." || $0 == ".." }
+    }
+
+    private static func validateArchivePaths(tarBall: URL) throws {
+        let process = Process()
+        let pipe = Pipe()
+
+        process.executableURL = tarBinary
+        process.arguments = ["-tzf", tarBall.path]
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+
+        guard let output = try pipe.fileHandleForReading.readToEnd() else { return }
+        process.waitUntilExit()
+        let entries = (String(data: output, encoding: .utf8) ?? String())
+            .split(separator: "\n")
+            .map(String.init)
+        guard process.terminationStatus == 0, entries.allSatisfy({ isSafeArchivePath($0) }) else {
+            throw "Archive contains unsafe paths."
         }
     }
 }

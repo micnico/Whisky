@@ -1,0 +1,111 @@
+name: Build Graphics Runtime Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      wine_tag:
+        description: Official stable Wine tag
+        required: true
+        default: wine-11.0
+        type: string
+      wine_revision:
+        description: Full Wine commit expected for the tag
+        required: true
+        default: db11d0fe6a169c457e23d007e20404643d067aa8
+        type: string
+      dxvk_tag:
+        description: DXVK stable tag
+        required: true
+        default: v3.0.1
+        type: string
+      dxvk_revision:
+        description: Full DXVK commit expected for the tag
+        required: true
+        default: c850747f1df24180ce97b7a9094603f39da1251d
+        type: string
+      moltenvk_tag:
+        description: MoltenVK stable tag
+        required: true
+        default: v1.4.1
+        type: string
+      moltenvk_revision:
+        description: Full MoltenVK commit expected for the tag
+        required: true
+        default: db445ff2042d9ce348c439ad8451112f354b8d2a
+        type: string
+
+permissions:
+  contents: read
+  attestations: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - name: Install build dependencies
+        run: >-
+          brew install bison llvm lld meson ninja mingw-w64 cmake glslang
+          vulkan-headers vulkan-loader
+      - name: Build candidate
+        env:
+          WINE_TAG: ${{ inputs.wine_tag }}
+          DXVK_TAG: ${{ inputs.dxvk_tag }}
+          MOLTENVK_TAG: ${{ inputs.moltenvk_tag }}
+        run: |
+          runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
+          scripts/build-wine-runtime.sh \
+            --wine-tag "$WINE_TAG" \
+            --wine-revision "${{ inputs.wine_revision }}" \
+            --dxvk-tag "$DXVK_TAG" \
+            --dxvk-revision "${{ inputs.dxvk_revision }}" \
+            --moltenvk-tag "$MOLTENVK_TAG" \
+            --moltenvk-revision "${{ inputs.moltenvk_revision }}" \
+            --runtime-id "$runtime_id" \
+            --archive-url "https://example.invalid/$runtime_id.tar.gz" \
+            --workdir "$RUNNER_TEMP/runtime-build" \
+            --output "$RUNNER_TEMP/runtime-output" \
+            --jobs 3
+      - name: Verify archive
+        env:
+          WINE_TAG: ${{ inputs.wine_tag }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/runtime-output"
+          runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
+          test -s "$runtime_id.tar.gz"
+          expected="$(awk '{print $1}' "$runtime_id.tar.gz.sha256")"
+          actual="$(openssl dgst -sha256 "$runtime_id.tar.gz" | awk '{print $NF}')"
+          test "$expected" = "$actual"
+          "$GITHUB_WORKSPACE/scripts/verify-graphics-runtime.sh" \
+            --archive "$runtime_id.tar.gz" \
+            --workdir "$RUNNER_TEMP/runtime-verify"
+      - name: Smoke test Wine and WoW64
+        env:
+          WINE_TAG: ${{ inputs.wine_tag }}
+        run: |
+          set -euo pipefail
+          runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
+          smoke_dir="$RUNNER_TEMP/runtime-smoke"
+          mkdir "$smoke_dir"
+          tar -C "$smoke_dir" -xzf "$RUNNER_TEMP/runtime-output/$runtime_id.tar.gz"
+          wine="$smoke_dir/Libraries/Wine/bin/wine64"
+          test "$("$wine" --version)" = "$WINE_TAG"
+          i686-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-win32.c" \
+            -o "$smoke_dir/smoke-win32.exe"
+          export WINEPREFIX="$smoke_dir/prefix"
+          "$wine" wineboot -u
+          "$wine" "$smoke_dir/smoke-win32.exe"
+      - name: Attest candidate artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: '${{ runner.temp }}/runtime-output/*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wine-graphics-runtime-candidate
+          path: ${{ runner.temp }}/runtime-output
+          retention-days: 14

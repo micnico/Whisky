@@ -7076,6 +7076,22 @@
         }
       }
     },
+    "config.runtime" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wine Runtime"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wine 运行时"
+          }
+        }
+      }
+    },
     "config.winVersion" : {
       "localizations" : {
         "ar" : {
