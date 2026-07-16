@@ -44,7 +44,7 @@ final class WhiskyWineReleaseTests: XCTestCase {
         let release = WhiskyWineRelease(
             id: "wine-11.0",
             version: SemanticVersion(11, 0, 0),
-            archiveURL: URL(string: "https://example.com/wine-11.0.tar.gz")!,
+            archiveURL: try XCTUnwrap(URL(string: "https://example.com/wine-11.0.tar.gz")),
             sha256: String(repeating: "a", count: 64)
         )
         let decoded = try PropertyListDecoder().decode(
@@ -104,7 +104,7 @@ final class WhiskyWineReleaseTests: XCTestCase {
         let release = WhiskyWineRelease(
             id: "wine-11.0",
             version: SemanticVersion(11, 0, 0),
-            archiveURL: URL(string: "https://example.com/wine-11.0.tar.gz")!,
+            archiveURL: try XCTUnwrap(URL(string: "https://example.com/wine-11.0.tar.gz")),
             sha256: checksum
         )
 

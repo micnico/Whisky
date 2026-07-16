@@ -51,8 +51,15 @@ public class WhiskyWineInstaller {
         libraryFolder(for: id).appending(path: "Wine").appending(path: "bin")
     }
 
-    public static let legacyArchiveURL = URL(string: "https://data.getwhisky.app/Wine/Libraries.tar.gz")!
-    private static let releaseManifestURL = URL(string: "https://data.getwhisky.app/Wine/WhiskyWineVersion.plist")!
+    public static let legacyArchiveURL = staticURL("https://data.getwhisky.app/Wine/Libraries.tar.gz")
+    private static let releaseManifestURL = staticURL("https://data.getwhisky.app/Wine/WhiskyWineVersion.plist")
+
+    private static func staticURL(_ value: String) -> URL {
+        guard let url = URL(string: value) else {
+            preconditionFailure("Invalid static URL: \(value)")
+        }
+        return url
+    }
 
     public static func isWhiskyWineInstalled() -> Bool {
         return whiskyWineVersion() != nil

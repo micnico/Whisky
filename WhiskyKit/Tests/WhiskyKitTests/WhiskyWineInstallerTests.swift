@@ -43,9 +43,11 @@ final class WhiskyWineInstallerTests: XCTestCase {
         XCTAssertEqual(Wine.wineBinary(for: bottle), legacyBin.appending(path: "wine64"))
     }
 
-    func testReleaseArchiveURLRequiresHTTPS() {
-        XCTAssertTrue(WhiskyWineInstaller.isSecureArchiveURL(URL(string: "https://example.com/wine.tar.gz")!))
-        XCTAssertFalse(WhiskyWineInstaller.isSecureArchiveURL(URL(string: "http://example.com/wine.tar.gz")!))
+    func testReleaseArchiveURLRequiresHTTPS() throws {
+        let secureURL = try XCTUnwrap(URL(string: "https://example.com/wine.tar.gz"))
+        let insecureURL = try XCTUnwrap(URL(string: "http://example.com/wine.tar.gz"))
+        XCTAssertTrue(WhiskyWineInstaller.isSecureArchiveURL(secureURL))
+        XCTAssertFalse(WhiskyWineInstaller.isSecureArchiveURL(insecureURL))
         XCTAssertFalse(WhiskyWineInstaller.isSecureArchiveURL(URL(fileURLWithPath: "/tmp/wine.tar.gz")))
     }
 
@@ -69,7 +71,7 @@ final class WhiskyWineInstallerTests: XCTestCase {
             .joined()
         let release = WhiskyWineRelease(
             id: "wine-11.0", version: SemanticVersion(11, 0, 0),
-            archiveURL: URL(string: "https://example.com/wine-11.0.tar.gz")!, sha256: checksum
+            archiveURL: try XCTUnwrap(URL(string: "https://example.com/wine-11.0.tar.gz")), sha256: checksum
         )
 
         XCTAssertThrowsError(try WhiskyWineInstaller.install(release: release, from: archive))
@@ -102,7 +104,7 @@ final class WhiskyWineInstallerTests: XCTestCase {
         let checksum = SHA256.hash(data: try Data(contentsOf: archive)).map { String(format: "%02x", $0) }.joined()
         let release = WhiskyWineRelease(
             id: "wine-11.0", version: SemanticVersion(11, 0, 0),
-            archiveURL: URL(string: "https://example.com/wine-11.0.tar.gz")!, sha256: checksum
+            archiveURL: try XCTUnwrap(URL(string: "https://example.com/wine-11.0.tar.gz")), sha256: checksum
         )
 
         XCTAssertThrowsError(try WhiskyWineInstaller.install(release: release, from: archive))
@@ -134,7 +136,7 @@ final class WhiskyWineInstallerTests: XCTestCase {
         let checksum = SHA256.hash(data: try Data(contentsOf: archive)).map { String(format: "%02x", $0) }.joined()
         let release = WhiskyWineRelease(
             id: "wine-11.0", version: SemanticVersion(11, 0, 0),
-            archiveURL: URL(string: "https://example.com/wine-11.0.tar.gz")!, sha256: checksum
+            archiveURL: try XCTUnwrap(URL(string: "https://example.com/wine-11.0.tar.gz")), sha256: checksum
         )
 
         XCTAssertThrowsError(try WhiskyWineInstaller.install(release: release, from: archive))
