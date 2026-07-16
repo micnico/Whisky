@@ -126,12 +126,12 @@ archive="$output_dir/${runtime_id}.tar.gz"
 manifest="$output_dir/WhiskyWineVersion.plist"
 
 report_failure() {
-    local status=$?
+    local exit_code=$?
     for log in "$work_dir"/*.log(N); do
         print -u2 -- "\nLast 200 lines of $log:"
         tail -n 200 "$log" >&2
     done
-    exit "$status"
+    exit "$exit_code"
 }
 trap report_failure ERR
 
