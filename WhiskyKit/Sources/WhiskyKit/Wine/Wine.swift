@@ -52,7 +52,7 @@ public class Wine {
     }
 
     /// Run a `wine` process with the given arguments and environment variables returning a stream of output
-    private static func runWineProcess(
+    static func runWineProcess(
         name: String? = nil, args: [String], environment: [String: String] = [:],
         fileHandle: FileHandle?, bottle: Bottle? = nil
     ) throws -> AsyncStream<ProcessOutput> {
@@ -64,7 +64,7 @@ public class Wine {
     }
 
     /// Run a `wineserver` process with the given arguments and environment variables returning a stream of output
-    private static func runWineserverProcess(
+    static func runWineserverProcess(
         name: String? = nil, args: [String], environment: [String: String] = [:],
         fileHandle: FileHandle?, bottle: Bottle? = nil
     ) throws -> AsyncStream<ProcessOutput> {

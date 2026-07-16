@@ -58,3 +58,38 @@ struct ActionView: View {
         }
     }
 }
+
+struct SettingItemView<Content: View>: View {
+    let title: String.LocalizationValue
+    let loadingState: LoadingState
+    @ViewBuilder var content: () -> Content
+
+    @Namespace private var viewId
+    @Namespace private var progressViewId
+
+    var body: some View {
+        HStack {
+            Text(String(localized: title))
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack {
+                switch loadingState {
+                case .loading, .modifying:
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                        .matchedGeometryEffect(id: progressViewId, in: viewId)
+                case .success:
+                    content()
+                        .labelsHidden()
+                        .disabled(loadingState != .success)
+                case .failed:
+                    Text("config.notAvailable")
+                        .font(.caption).foregroundStyle(.red)
+                        .multilineTextAlignment(.trailing)
+                }
+            }.animation(.default, value: loadingState)
+        }
+    }
+}
