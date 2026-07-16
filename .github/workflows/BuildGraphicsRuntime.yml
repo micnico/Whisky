@@ -94,18 +94,24 @@ jobs:
           mkdir "$smoke_dir"
           tar -C "$smoke_dir" -xzf "$RUNNER_TEMP/runtime-output/$runtime_id.tar.gz"
           wine="$smoke_dir/Libraries/Wine/bin/wine64"
-          test "$("$wine" --version)" = "$WINE_TAG"
-          i686-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-win32.c" \
-            -o "$smoke_dir/smoke-win32.exe"
-          export WINEPREFIX="$smoke_dir/prefix"
-          "$wine" wineboot -u
-          "$wine" "$smoke_dir/smoke-win32.exe"
+          {
+            set -x
+            test "$("$wine" --version)" = "$WINE_TAG"
+            i686-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-win32.c" \
+              -o "$smoke_dir/smoke-win32.exe"
+            export WINEPREFIX="$smoke_dir/prefix"
+            "$wine" wineboot -u
+            "$wine" "$smoke_dir/smoke-win32.exe"
+          } 2>&1 | tee "$RUNNER_TEMP/wow64-smoke.log"
       - name: Attest candidate artifacts
         uses: actions/attest@v4
         with:
           subject-path: '${{ runner.temp }}/runtime-output/*'
       - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
         with:
           name: wine-graphics-runtime-candidate
-          path: ${{ runner.temp }}/runtime-output
+          path: |
+            ${{ runner.temp }}/runtime-output
+            ${{ runner.temp }}/wow64-smoke.log
           retention-days: 14
