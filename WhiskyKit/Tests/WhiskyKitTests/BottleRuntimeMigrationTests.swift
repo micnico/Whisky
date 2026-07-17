@@ -29,6 +29,9 @@ final class BottleRuntimeMigrationTests: XCTestCase {
         let backup = try await Wine.migrateBottle(bottle, to: runtimeID)
 
         XCTAssertEqual(bottle.settings.runtimeID, runtimeID)
+        XCTAssertEqual(
+            try BottleSettings.decode(from: bottle.url.appending(path: "Metadata.plist")).runtimeID, runtimeID
+        )
         XCTAssertTrue(FileManager.default.fileExists(atPath: backup.appending(path: "Metadata.plist").path))
     }
 
@@ -43,6 +46,9 @@ final class BottleRuntimeMigrationTests: XCTestCase {
             XCTFail("Migration should fail when wineboot fails")
         } catch WineRuntimeMigrationError.smokeTestFailed {
             XCTAssertEqual(bottle.settings.runtimeID, "legacy")
+            XCTAssertEqual(
+                try BottleSettings.decode(from: bottle.url.appending(path: "Metadata.plist")).runtimeID, "legacy"
+            )
             XCTAssertEqual(try Data(contentsOf: bottle.url.appending(path: "marker")), Data("legacy".utf8))
         }
     }
