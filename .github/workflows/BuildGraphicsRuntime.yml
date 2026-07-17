@@ -100,6 +100,9 @@ jobs:
             i686-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-win32.c" \
               -o "$smoke_dir/smoke-win32.exe"
             export WINEPREFIX="$smoke_dir/prefix"
+            ulimit -a
+            vm_stat
+            ps -axo pid,ppid,rss,command
             "$wine" wineboot -u
             "$wine" "$smoke_dir/smoke-win32.exe"
           } 2>&1 | tee "$RUNNER_TEMP/wow64-smoke.log"
