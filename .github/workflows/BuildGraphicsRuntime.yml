@@ -106,18 +106,25 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/runtime-output"
           runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
-          verification_args=()
           if [[ "${RUNTIME_SIGNED:-false}" == "true" ]]; then
-            verification_args+=(--require-developer-id)
+            require_developer_id=--require-developer-id
+          else
+            require_developer_id=
           fi
           test -s "$runtime_id.tar.gz"
           expected="$(awk '{print $1}' "$runtime_id.tar.gz.sha256")"
           actual="$(openssl dgst -sha256 "$runtime_id.tar.gz" | awk '{print $NF}')"
           test "$expected" = "$actual"
-          "$GITHUB_WORKSPACE/scripts/verify-graphics-runtime.sh" \
-            --archive "$runtime_id.tar.gz" \
-            --workdir "$RUNNER_TEMP/runtime-verify" \
-            "${verification_args[@]}"
+          if [[ -n "$require_developer_id" ]]; then
+            "$GITHUB_WORKSPACE/scripts/verify-graphics-runtime.sh" \
+              --archive "$runtime_id.tar.gz" \
+              --workdir "$RUNNER_TEMP/runtime-verify" \
+              "$require_developer_id"
+          else
+            "$GITHUB_WORKSPACE/scripts/verify-graphics-runtime.sh" \
+              --archive "$runtime_id.tar.gz" \
+              --workdir "$RUNNER_TEMP/runtime-verify"
+          fi
       - name: Smoke test Wine and WoW64
         if: ${{ env.RUNTIME_SIGNED == 'true' }}
         env:
