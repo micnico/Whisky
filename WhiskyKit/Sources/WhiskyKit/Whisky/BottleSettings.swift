@@ -132,7 +132,7 @@ public enum DXVKHUD: Codable, Equatable {
 
 public struct BottleDXVKConfig: Codable, Equatable {
     var dxvk: Bool = false
-    var dxvkAsync: Bool = true
+    var dxvkAsync: Bool = false
     var dxvkHud: DXVKHUD = .off
 
     public init() {}
@@ -140,7 +140,7 @@ public struct BottleDXVKConfig: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.dxvk = try container.decodeIfPresent(Bool.self, forKey: .dxvk) ?? false
-        self.dxvkAsync = try container.decodeIfPresent(Bool.self, forKey: .dxvkAsync) ?? true
+        self.dxvkAsync = try container.decodeIfPresent(Bool.self, forKey: .dxvkAsync) ?? false
         self.dxvkHud = try container.decodeIfPresent(DXVKHUD.self, forKey: .dxvkHud) ?? .off
     }
 }

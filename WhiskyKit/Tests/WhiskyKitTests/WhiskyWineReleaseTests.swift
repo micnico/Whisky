@@ -261,13 +261,14 @@ final class WhiskyWineReleaseTests: XCTestCase {
         XCTAssertTrue(WhiskyWineInstaller.supportsDXVK(id: runtimeID))
     }
 
-    func testDXVKAsyncIsDisabledWithDXVK() {
+    func testDXVKAsyncRequiresExplicitOptIn() {
         var settings = BottleSettings()
         var environment: [String: String] = [:]
+        settings.dxvk = true
         settings.environmentVariables(wineEnv: &environment)
         XCTAssertNil(environment["DXVK_ASYNC"])
 
-        settings.dxvk = true
+        settings.dxvkAsync = true
         settings.environmentVariables(wineEnv: &environment)
         XCTAssertEqual(environment["DXVK_ASYNC"], "1")
     }
