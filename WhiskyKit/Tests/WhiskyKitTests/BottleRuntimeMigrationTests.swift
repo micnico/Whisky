@@ -53,11 +53,11 @@ final class BottleRuntimeMigrationTests: XCTestCase {
         WhiskyWineInstaller.testingApplicationFolder = root
         addTeardownBlock { WhiskyWineInstaller.testingApplicationFolder = originalRoot }
         let runtimeID = "wine-11.0-arm64"
-        let targetBin = try createRuntime(at: root, id: runtimeID).appending(path: "Wine/bin")
-        try writeCommand(to: targetBin.appending(path: "wine64"), status: status)
-        try writeCommand(to: root.appending(path: "Libraries/Wine/bin/wineserver"), status: 0)
         let bottleURL = root.appending(path: "Bottles/test")
         try FileManager.default.createDirectory(at: bottleURL, withIntermediateDirectories: true)
+        let targetBin = try createRuntime(at: root, id: runtimeID).appending(path: "Wine/bin")
+        try writeCommand(to: targetBin.appending(path: "wine64"), status: status, winePrefix: bottleURL.path)
+        try writeCommand(to: root.appending(path: "Libraries/Wine/bin/wineserver"), status: 0)
         return (root, Bottle(bottleUrl: bottleURL))
     }
 
@@ -72,9 +72,10 @@ final class BottleRuntimeMigrationTests: XCTestCase {
         return libraries
     }
 
-    private func writeCommand(to url: URL, status: Int) throws {
+    private func writeCommand(to url: URL, status: Int, winePrefix: String? = nil) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("#!/bin/sh\nexit \(status)\n".utf8).write(to: url)
+        let prefixCheck = winePrefix.map { "[ \"$WINEPREFIX\" = \"\($0)\" ] || exit 2\n" } ?? ""
+        try Data("#!/bin/sh\n\(prefixCheck)exit \(status)\n".utf8).write(to: url)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 }
