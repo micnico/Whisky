@@ -21,6 +21,7 @@ usage() {
     print "  --dxvk-revision SHA Verify the checked-out DXVK revision"
     print "  --moltenvk-tag TAG Build MoltenVK from source (requires --dxvk-tag)"
     print "  --moltenvk-revision SHA Verify the checked-out MoltenVK revision"
+    print "  --code-sign-identity ID Sign Mach-O runtime files with this identity"
     print "  --jobs N           Parallel make jobs (default: 4)"
 }
 
@@ -34,6 +35,7 @@ dxvk_tag=""
 dxvk_revision=""
 moltenvk_tag=""
 moltenvk_revision=""
+code_sign_identity="-"
 jobs=4
 
 while (( $# )); do
@@ -48,6 +50,7 @@ while (( $# )); do
         --dxvk-revision) dxvk_revision="$2"; shift 2 ;;
         --moltenvk-tag) moltenvk_tag="$2"; shift 2 ;;
         --moltenvk-revision) moltenvk_revision="$2"; shift 2 ;;
+        --code-sign-identity) code_sign_identity="$2"; shift 2 ;;
         --jobs) jobs="$2"; shift 2 ;;
         --help) usage; exit 0 ;;
         *) print -u2 "Unknown argument: $1"; usage; exit 2 ;;
@@ -98,6 +101,14 @@ for command in brew git make openssl tar; do
         exit 1
     }
 done
+if [[ "$code_sign_identity" != "-" ]]; then
+    for command in codesign file; do
+        command -v "$command" >/dev/null || {
+            print -u2 "Missing required command for runtime signing: $command"
+            exit 1
+        }
+    done
+fi
 
 bison_prefix="$(brew --prefix bison)"
 llvm_prefix="$(brew --prefix llvm)"
@@ -216,6 +227,14 @@ if $graphics_runtime; then
         "$runtime_dir/Libraries/Vulkan/libMoltenVK.dylib"
 fi
 
+if [[ "$code_sign_identity" != "-" ]]; then
+    while IFS= read -r -d '' binary; do
+        if /usr/bin/file -b "$binary" | grep -q 'Mach-O'; then
+            codesign --force --timestamp --sign "$code_sign_identity" "$binary"
+        fi
+    done < <(find "$runtime_dir/Libraries" -type f -print0)
+fi
+
 IFS=. read -r major minor <<< "$version"
 version_plist="$runtime_dir/Libraries/WhiskyWineVersion.plist"
 provenance_plist="$runtime_dir/Libraries/WhiskyWineProvenance.plist"
@@ -249,7 +268,7 @@ if $graphics_runtime; then
     /usr/libexec/PlistBuddy -c "Add :vulkanLoaderVersion string $(brew info --json=v2 vulkan-loader | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
     /usr/libexec/PlistBuddy -c 'Add :vulkanLoaderLicense string Apache-2.0' "$provenance_plist"
     (cd "$runtime_dir" && find Libraries -type f ! -name WhiskyWineBinaries.sha256 -print0 | \
-        sort -z | xargs -0 openssl dgst -sha256) \
+        sort -z | xargs -0 openssl dgst -sha256 -r | sed -E 's/^([0-9a-f]+) \*?(.*)$/\1 \2/') \
         > "$runtime_dir/Libraries/WhiskyWineBinaries.sha256"
 fi
 

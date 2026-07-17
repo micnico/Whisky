@@ -1,6 +1,6 @@
 # Runtime acceptance
 
-Publish a runtime only when its archive, manifest, provenance, and smoke-test record are available together. Do not overwrite the legacy runtime or make an unverified archive the default.
+Publish a runtime only when its archive, manifest, provenance, Developer ID signature, and smoke-test record are available together. Do not overwrite the legacy runtime or make an unverified archive the default.
 
 Build the base ARM64 Wine runtime with `scripts/build-wine-runtime.sh`. It accepts only a stable Wine tag, clones the official WineHQ source, records its exact revision in `Libraries/WhiskyWineProvenance.plist`, then writes the archive, checksum file, and client manifest. It requires Homebrew `bison`, `llvm`, and `lld`.
 
@@ -44,7 +44,9 @@ For a candidate built by `Build Graphics Runtime Candidate`, download the archiv
 gh attestation verify wine-11.0-dxvk-moltenvk-arm64.tar.gz -R OWNER/REPOSITORY
 ```
 
-The workflow attests the archive, its SHA-256 file, and the client manifest together. This proves the candidate's GitHub Actions origin; the client still enforces the manifest digest at install time.
+The workflow attests the archive, its SHA-256 file, and the client manifest together. This proves the candidate's GitHub Actions origin; the client still enforces the manifest digest at install time. It does not make an unsigned runtime executable.
+
+On current macOS releases, Wine's nested Mach-O helpers must be signed with a `Developer ID Application` identity before they can be smoke-tested or released. To enable the executable CI gate, configure the repository secrets `WHISKY_RUNTIME_SIGNING_P12_BASE64` (a base64-encoded Developer ID `.p12`, including its private key) and `WHISKY_RUNTIME_SIGNING_P12_PASSWORD`. The workflow imports that identity into an ephemeral runner keychain, signs every Mach-O file before calculating the runtime file hashes, and then runs the Wine/WoW64 smoke test. Without those secrets it produces an attestable **unsigned candidate** and records that the executable smoke test was skipped; it must not be published. Notarize the final release archive or enclosing app as required by the intended distribution path.
 
 ## Bottle migration
 

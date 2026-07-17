@@ -47,6 +47,30 @@ jobs:
       - uses: actions/checkout@v4
       - name: Confirm Apple Silicon runner
         run: test "$(uname -m)" = arm64
+      - name: Prepare optional Developer ID signing
+        env:
+          RUNTIME_SIGNING_P12_BASE64: ${{ secrets.WHISKY_RUNTIME_SIGNING_P12_BASE64 }}
+          RUNTIME_SIGNING_P12_PASSWORD: ${{ secrets.WHISKY_RUNTIME_SIGNING_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$RUNTIME_SIGNING_P12_BASE64" || -z "$RUNTIME_SIGNING_P12_PASSWORD" ]]; then
+            echo "RUNTIME_SIGNED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          keychain_path="$RUNNER_TEMP/runtime-signing.keychain-db"
+          certificate_path="$RUNNER_TEMP/runtime-signing.p12"
+          keychain_password="$(uuidgen)"
+          printf '%s' "$RUNTIME_SIGNING_P12_BASE64" | base64 -D > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" -P "$RUNTIME_SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          identity="$(security find-identity -v -p codesigning "$keychain_path" | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -n 1)"
+          test -n "$identity"
+          echo "RUNTIME_CODE_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "RUNTIME_SIGNED=true" >> "$GITHUB_ENV"
       - name: Install build dependencies
         run: >-
           brew install bison llvm lld meson ninja mingw-w64 cmake glslang
@@ -58,6 +82,10 @@ jobs:
           MOLTENVK_TAG: ${{ inputs.moltenvk_tag }}
         run: |
           runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
+          signing_args=()
+          if [[ -n "${RUNTIME_CODE_SIGN_IDENTITY:-}" ]]; then
+            signing_args+=(--code-sign-identity "$RUNTIME_CODE_SIGN_IDENTITY")
+          fi
           scripts/build-wine-runtime.sh \
             --wine-tag "$WINE_TAG" \
             --wine-revision "${{ inputs.wine_revision }}" \
@@ -69,7 +97,8 @@ jobs:
             --archive-url "https://example.invalid/$runtime_id.tar.gz" \
             --workdir "$RUNNER_TEMP/runtime-build" \
             --output "$RUNNER_TEMP/runtime-output" \
-            --jobs 3
+            --jobs 3 \
+            "${signing_args[@]}"
       - name: Verify archive
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
@@ -85,6 +114,7 @@ jobs:
             --archive "$runtime_id.tar.gz" \
             --workdir "$RUNNER_TEMP/runtime-verify"
       - name: Smoke test Wine and WoW64
+        if: ${{ env.RUNTIME_SIGNED == 'true' }}
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
         run: |
@@ -106,6 +136,12 @@ jobs:
             "$wine" wineboot -u
             "$wine" "$smoke_dir/smoke-win32.exe"
           } 2>&1 | tee "$RUNNER_TEMP/wow64-smoke.log"
+      - name: Record skipped executable smoke test
+        if: ${{ env.RUNTIME_SIGNED != 'true' }}
+        run: >-
+          printf '%s\n'
+          'SKIPPED: Wine/WoW64 execution requires a configured Developer ID Application signing certificate.'
+          > "$RUNNER_TEMP/wow64-smoke.log"
       - name: Attest candidate artifacts
         uses: actions/attest@v4
         with:

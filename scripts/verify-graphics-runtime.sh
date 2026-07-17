@@ -41,6 +41,13 @@ is_safe_archive_path() {
     done
 }
 
+normalize_hashes() {
+    sed -E \
+        -e 's/^SHA(2-)?256\((.*)\)= ([0-9a-f]+)$/\3 \2/' \
+        -e 's/^([0-9a-f]+) \*?(.*)$/\1 \2/' | \
+        LC_ALL=C sort
+}
+
 while IFS= read -r entry; do
     is_safe_archive_path "$entry" || {
         print -u2 "Unsafe archive path: $entry"
@@ -82,6 +89,10 @@ file "$dxvk_x64/d3d11.dll" | grep -q PE32+
 file "$dxvk_x32/d3d11.dll" | grep -q 'PE32 executable'
 file "$vulkan/libMoltenVK.dylib" | grep -q arm64
 codesign -v "$vulkan/libMoltenVK.dylib" "$vulkan/libvulkan.1.dylib"
+while IFS= read -r -d '' native_binary; do
+    /usr/bin/file -b "$native_binary" | grep -q 'Mach-O' || continue
+    codesign -v "$native_binary"
+done < <(find "$libraries" -type f -print0)
 
 runtime_root="${libraries:A}"
 while IFS= read -r -d '' link; do
@@ -92,8 +103,8 @@ while IFS= read -r -d '' link; do
 done < <(find "$libraries" -type l -print0)
 
 (cd "$work_dir" && find Libraries -type f ! -name WhiskyWineBinaries.sha256 -print0 | \
-    sort -z | xargs -0 openssl dgst -sha256 | sort) > "$work_dir/actual.sha256"
-sort "$hashes" > "$work_dir/expected.sha256"
+    sort -z | xargs -0 openssl dgst -sha256 -r) | normalize_hashes > "$work_dir/actual.sha256"
+normalize_hashes < "$hashes" > "$work_dir/expected.sha256"
 cmp "$work_dir/expected.sha256" "$work_dir/actual.sha256"
 
 print "Verified $archive"
