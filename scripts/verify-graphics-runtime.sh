@@ -5,16 +5,18 @@
 set -euo pipefail
 
 usage() {
-    print "Usage: ${0:t} --archive PATH --workdir DIR"
+    print "Usage: ${0:t} --archive PATH --workdir DIR [--require-developer-id]"
 }
 
 archive=""
 work_dir=""
+require_developer_id=false
 
 while (( $# )); do
     case "$1" in
         --archive) archive="$2"; shift 2 ;;
         --workdir) work_dir="$2"; shift 2 ;;
+        --require-developer-id) require_developer_id=true; shift ;;
         --help) usage; exit 0 ;;
         *) print -u2 "Unknown argument: $1"; usage; exit 2 ;;
     esac
@@ -92,6 +94,12 @@ codesign -v "$vulkan/libMoltenVK.dylib" "$vulkan/libvulkan.1.dylib"
 while IFS= read -r -d '' native_binary; do
     /usr/bin/file -b "$native_binary" | grep -q 'Mach-O' || continue
     codesign -v "$native_binary"
+    if $require_developer_id; then
+        codesign -dvv "$native_binary" 2>&1 | grep -q '^Authority=Developer ID Application:' || {
+            print -u2 "Mach-O is not signed by Developer ID: $native_binary"
+            exit 1
+        }
+    fi
 done < <(find "$libraries" -type f -print0)
 
 runtime_root="${libraries:A}"
