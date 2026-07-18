@@ -69,6 +69,8 @@ jobs:
     needs: preflight
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 180
+    outputs:
+      runtime_signed: ${{ steps.runtime_metadata.outputs.runtime_signed }}
     steps:
       - uses: actions/checkout@v4
       - name: Confirm requested runner architecture
@@ -126,6 +128,39 @@ jobs:
             --output "$RUNNER_TEMP/runtime-output" \
             --jobs 3 \
             "${signing_args[@]}"
+      - id: runtime_metadata
+        name: Record candidate signing state
+        run: echo "runtime_signed=${RUNTIME_SIGNED:-false}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: wine-graphics-runtime-build-output
+          path: |
+            ${{ runner.temp }}/runtime-output
+            ${{ runner.temp }}/runtime-build/*.log
+          retention-days: 14
+  verify:
+    needs: build
+    runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
+    timeout-minutes: 30
+    env:
+      RUNTIME_SIGNED: ${{ needs.build.outputs.runtime_signed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wine-graphics-runtime-build-output
+          path: ${{ runner.temp }}/runtime-build-output
+      - name: Restore candidate output path
+        env:
+          WINE_TAG: ${{ inputs.wine_tag }}
+        run: |
+          set -euo pipefail
+          runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          archive_path="$(find "$RUNNER_TEMP/runtime-build-output" -type f -name "$runtime_id.tar.gz" -print -quit)"
+          test -n "$archive_path"
+          mkdir -p "$RUNNER_TEMP/runtime-output"
+          cp -R "$(dirname "$archive_path")/." "$RUNNER_TEMP/runtime-output/"
       - name: Verify archive
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
@@ -133,7 +168,7 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/runtime-output"
           runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
-          if [[ "${RUNTIME_SIGNED:-false}" == "true" ]]; then
+          if [[ "$RUNTIME_SIGNED" == "true" ]]; then
             require_developer_id=--require-developer-id
           else
             require_developer_id=
@@ -154,6 +189,9 @@ jobs:
               --workdir "$RUNNER_TEMP/runtime-verify" \
               --architecture "${{ inputs.architecture }}"
           fi
+      - name: Install smoke-test compiler
+        if: ${{ env.RUNTIME_SIGNED == 'true' || inputs.architecture == 'x86_64' }}
+        run: brew install mingw-w64
       - name: Smoke test Wine and WoW64
         if: ${{ env.RUNTIME_SIGNED == 'true' || inputs.architecture == 'x86_64' }}
         timeout-minutes: 15
