@@ -64,7 +64,11 @@ extension WhiskyWineInstaller {
             throw WhiskyWineReleaseError.invalidChecksum
         }
 
-        let handle = try FileHandle(forReadingFrom: archive)
+        guard try fileSHA256(of: archive) == expected else { throw WhiskyWineReleaseError.checksumMismatch }
+    }
+
+    static func fileSHA256(of file: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
 
         var digest = SHA256()
@@ -72,7 +76,6 @@ extension WhiskyWineInstaller {
             digest.update(data: data)
         }
 
-        let actual = digest.finalize().map { String(format: "%02x", $0) }.joined()
-        guard actual == expected else { throw WhiskyWineReleaseError.checksumMismatch }
+        return digest.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }

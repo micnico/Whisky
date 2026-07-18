@@ -198,7 +198,21 @@ public class WhiskyWineInstaller {
               isSelfContained(libraries) else {
             return false
         }
-        return FileManager.default.fileExists(atPath: wine.path) && FileManager.default.fileExists(atPath: version.path)
+        guard FileManager.default.fileExists(atPath: wine.path),
+              FileManager.default.fileExists(atPath: version.path) else {
+            return false
+        }
+
+        let hashes = libraries.appending(path: "WhiskyWineBinaries.sha256")
+        guard FileManager.default.fileExists(atPath: hashes.path) else { return true }
+        let graphicsFiles = [
+            "WhiskyWineProvenance.plist",
+            "Wine/lib/libfreetype.6.dylib", "Wine/lib/libgnutls.30.dylib", "Wine/lib/libSDL2-2.0.0.dylib",
+            "DXVK/x64/d3d11.dll", "DXVK/x64/dxgi.dll", "DXVK/x32/d3d11.dll", "DXVK/x32/dxgi.dll",
+            "Vulkan/MoltenVK_icd.json", "Vulkan/libMoltenVK.dylib", "Vulkan/libvulkan.1.dylib"
+        ]
+        return graphicsFiles.allSatisfy { FileManager.default.fileExists(atPath: libraries.appending(path: $0).path) }
+            && hasValidRuntimeHashes(at: libraries)
     }
 
     private static func isSelfContained(_ directory: URL) -> Bool {
@@ -297,6 +311,44 @@ public class WhiskyWineInstaller {
             print(error)
             return nil
         }
+    }
+}
+
+private extension WhiskyWineInstaller {
+    static func hasValidRuntimeHashes(at libraries: URL) -> Bool {
+        let manifest = libraries.appending(path: "WhiskyWineBinaries.sha256")
+        guard let text = try? String(contentsOf: manifest, encoding: .utf8) else { return false }
+        var expected: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            let fields = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard fields.count == 2 else { return false }
+            let hash = String(fields[0]).lowercased()
+            let path = String(fields[1])
+            let components = path.split(separator: "/", omittingEmptySubsequences: false)
+            guard hash.count == 64, hash.allSatisfy(\.isHexDigit), path.hasPrefix("Libraries/"),
+                  !components.contains(".") && !components.contains(".."), expected[path] == nil else {
+                return false
+            }
+            expected[path] = hash
+        }
+
+        let root = libraries.deletingLastPathComponent().standardizedFileURL
+        guard let enumerator = FileManager.default.enumerator(
+            at: libraries, includingPropertiesForKeys: [.isRegularFileKey]
+        ) else { return false }
+        var actual: [String: String] = [:]
+        while let file = enumerator.nextObject() as? URL {
+            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            let standardizedPath = file.standardizedFileURL.path
+            guard standardizedPath.hasPrefix(root.path + "/") else { return false }
+            let path = String(standardizedPath.dropFirst(root.path.count + 1))
+            guard path != "Libraries/WhiskyWineBinaries.sha256", let hash = try? fileSHA256(of: file) else {
+                if path == "Libraries/WhiskyWineBinaries.sha256" { continue }
+                return false
+            }
+            actual[path] = hash
+        }
+        return !expected.isEmpty && actual == expected
     }
 }
 
