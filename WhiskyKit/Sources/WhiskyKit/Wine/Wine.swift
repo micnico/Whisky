@@ -225,8 +225,21 @@ public class Wine {
             result.removeValue(forKey: "DXVK_ASYNC")
             result.removeValue(forKey: "DXVK_HUD")
         }
+        configureRuntimeLibraryEnvironment(for: bottle, wineEnv: &result)
         configureVulkanEnvironment(for: bottle, wineEnv: &result)
         return result
+    }
+
+    private static func configureRuntimeLibraryEnvironment(for bottle: Bottle, wineEnv: inout [String: String]) {
+        let wineLibraryFolder = WhiskyWineInstaller.libraryFolder(for: runtimeID(for: bottle))
+            .appending(path: "Wine/lib")
+        guard FileManager.default.fileExists(atPath: wineLibraryFolder.path) else { return }
+
+        if let fallback = wineEnv["DYLD_FALLBACK_LIBRARY_PATH"], !fallback.isEmpty {
+            wineEnv["DYLD_FALLBACK_LIBRARY_PATH"] = "\(wineLibraryFolder.path):\(fallback)"
+        } else {
+            wineEnv["DYLD_FALLBACK_LIBRARY_PATH"] = wineLibraryFolder.path
+        }
     }
 
     private static func configureVulkanEnvironment(for bottle: Bottle, wineEnv: inout [String: String]) {
@@ -251,8 +264,8 @@ public class Wine {
             "WINEDEBUG": "fixme-all",
             "GST_DEBUG": "1"
         ]
-        guard !environment.isEmpty else { return result }
         result.merge(environment, uniquingKeysWith: { $1 })
+        configureRuntimeLibraryEnvironment(for: bottle, wineEnv: &result)
         return result
     }
 }

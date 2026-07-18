@@ -106,7 +106,7 @@ if [[ ! "$runtime_id" =~ '^[A-Za-z0-9._-]+$' ]]; then
     exit 2
 fi
 
-for command in brew git make openssl tar; do
+for command in brew git make openssl tar codesign file install_name_tool otool; do
     command -v "$command" >/dev/null || {
         print -u2 "Missing required command: $command"
         exit 1
@@ -124,6 +124,9 @@ fi
 bison_prefix="$(brew --prefix bison)"
 llvm_prefix="$(brew --prefix llvm)"
 lld_prefix="$(brew --prefix lld)"
+freetype_prefix="$(brew --prefix freetype)"
+gnutls_prefix="$(brew --prefix gnutls)"
+brew_prefix="$(brew --prefix)"
 export PATH="$llvm_prefix/bin:$lld_prefix/bin:$bison_prefix/bin:$PATH"
 
 if $graphics_runtime; then
@@ -195,19 +198,25 @@ wine_configure_args=()
 if [[ "$architecture" == "x86_64" ]]; then
     wine_configure_args=(--build=x86_64-apple-darwin --enable-archs=i386,x86_64)
 fi
+wine_pkg_config_path="$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig"
+wine_cppflags="-I$freetype_prefix/include -I$gnutls_prefix/include"
+wine_ldflags="-L$freetype_prefix/lib -L$gnutls_prefix/lib"
 if $graphics_runtime; then
     print "Configuring Wine for $architecture"
     (
         cd "$build_dir"
-        PKG_CONFIG_PATH="$vulkan_loader_prefix/lib/pkgconfig:$vulkan_headers_prefix/share/pkgconfig" \
-        CPPFLAGS="-I$vulkan_headers_prefix/include" \
-        LDFLAGS="-L$vulkan_loader_prefix/lib" \
+        PKG_CONFIG_PATH="$wine_pkg_config_path:$vulkan_loader_prefix/lib/pkgconfig:$vulkan_headers_prefix/share/pkgconfig" \
+        CPPFLAGS="$wine_cppflags -I$vulkan_headers_prefix/include" \
+        LDFLAGS="$wine_ldflags -L$vulkan_loader_prefix/lib" \
         "$source_dir/configure" "${wine_configure_args[@]}"
     ) > "$work_dir/configure.log" 2>&1
 else
     print "Configuring Wine for $architecture"
     (
         cd "$build_dir"
+        PKG_CONFIG_PATH="$wine_pkg_config_path" \
+        CPPFLAGS="$wine_cppflags" \
+        LDFLAGS="$wine_ldflags" \
         "$source_dir/configure" "${wine_configure_args[@]}"
     ) > "$work_dir/configure.log" 2>&1
 fi
@@ -219,6 +228,40 @@ make -C "$build_dir" install DESTDIR="$stage_dir" > "$work_dir/install.log" 2>&1
 mkdir -p "$runtime_dir/Libraries"
 mv "$stage_dir/usr/local" "$runtime_dir/Libraries/Wine"
 ln -s wine "$runtime_dir/Libraries/Wine/bin/wine64"
+
+# Wine loads FreeType and GnuTLS by name at runtime. Bundle their complete
+# Homebrew dependency closure so the archive does not depend on the builder.
+wine_library_dir="$runtime_dir/Libraries/Wine/lib"
+bundle_homebrew_library() {
+    local source="$1" destination dependency
+    [[ "$source" == "$brew_prefix/"* ]] || return 0
+    destination="$wine_library_dir/${source:t}"
+    [[ -f "$destination" ]] && return 0
+    cp -L "$source" "$destination"
+    while IFS= read -r dependency; do
+        dependency="${dependency#"${dependency%%[![:space:]]*}"}"
+        dependency="${dependency%% (*}"
+        if [[ "$dependency" == "$brew_prefix/"* ]]; then
+            bundle_homebrew_library "$dependency"
+        fi
+    done < <(otool -L "$source" | tail -n +2)
+    true
+}
+
+bundle_homebrew_library "$freetype_prefix/lib/libfreetype.6.dylib"
+bundle_homebrew_library "$gnutls_prefix/lib/libgnutls.30.dylib"
+
+while IFS= read -r -d '' library; do
+    install_name_tool -id "@loader_path/${library:t}" "$library"
+    while IFS= read -r dependency; do
+        dependency="${dependency#"${dependency%%[![:space:]]*}"}"
+        dependency="${dependency%% (*}"
+        if [[ "$dependency" == "$brew_prefix/"* && -f "$wine_library_dir/${dependency:t}" ]]; then
+            install_name_tool -change "$dependency" "@loader_path/${dependency:t}" "$library"
+        fi
+    done < <(otool -L "$library" | tail -n +2)
+done < <(find "$wine_library_dir" -type f -name '*.dylib' -print0)
+true
 
 if $graphics_runtime; then
     print "Building MoltenVK"
@@ -281,6 +324,11 @@ fi
 /usr/libexec/PlistBuddy -c "Add :wineRevision string $(git -C "$source_dir" rev-parse HEAD)" "$provenance_plist"
 /usr/libexec/PlistBuddy -c 'Add :wineLicense string LGPL-2.1-or-later' "$provenance_plist"
 /usr/libexec/PlistBuddy -c "Add :architecture string $architecture" "$provenance_plist"
+/usr/libexec/PlistBuddy -c 'Add :runtimeDependencySource string Homebrew' "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :freetypeVersion string $(brew info --json=v2 freetype | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
+/usr/libexec/PlistBuddy -c 'Add :freetypeLicense string FTL' "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :gnutlsVersion string $(brew info --json=v2 gnutls | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
+/usr/libexec/PlistBuddy -c 'Add :gnutlsLicense string LGPL-2.1-or-later' "$provenance_plist"
 if $graphics_runtime; then
     /usr/libexec/PlistBuddy -c "Add :dxvkSource string $DXVK_SOURCE" "$provenance_plist"
     /usr/libexec/PlistBuddy -c "Add :dxvkTag string $dxvk_tag" "$provenance_plist"

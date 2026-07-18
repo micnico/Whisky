@@ -216,7 +216,10 @@ final class WhiskyWineReleaseTests: XCTestCase {
         }
 
         let runtimeID = "wine-11.0-dxvk"
-        let vulkanFolder = try createInstalledRuntime(at: root, id: runtimeID).appending(path: "Vulkan")
+        let libraries = try createInstalledRuntime(at: root, id: runtimeID)
+        let wineLibraryFolder = libraries.appending(path: "Wine/lib")
+        try FileManager.default.createDirectory(at: wineLibraryFolder, withIntermediateDirectories: true)
+        let vulkanFolder = libraries.appending(path: "Vulkan")
         try FileManager.default.createDirectory(at: vulkanFolder, withIntermediateDirectories: true)
         FileManager.default.createFile(
             atPath: vulkanFolder.appending(path: "MoltenVK_icd.json").path,
@@ -234,7 +237,9 @@ final class WhiskyWineReleaseTests: XCTestCase {
         XCTAssertTrue(command.contains(
             "VK_ICD_FILENAMES=\"\(vulkanFolder.appending(path: "MoltenVK_icd.json").path)\""
         ))
-        XCTAssertTrue(command.contains("DYLD_FALLBACK_LIBRARY_PATH=\"\(vulkanFolder.path)\""))
+        XCTAssertTrue(command.contains(
+            "DYLD_FALLBACK_LIBRARY_PATH=\"\(vulkanFolder.path):\(wineLibraryFolder.path)\""
+        ))
     }
 
     func testDXVKSupportRequiresBothArchitectures() throws {

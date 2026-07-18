@@ -35,7 +35,7 @@ if [[ -z "$archive" || -z "$work_dir" || ! -f "$archive" || -e "$work_dir" ]]; t
     exit 2
 fi
 
-for command in cmp codesign file find grep openssl plutil sort tar xargs; do
+for command in cmp codesign file find grep openssl otool plutil sort tar xargs; do
     command -v "$command" >/dev/null || {
         print -u2 "Missing required command: $command"
         exit 1
@@ -69,6 +69,7 @@ LC_ALL=C tar -C "$work_dir" -xzf "$archive"
 
 libraries="$work_dir/Libraries"
 wine="$libraries/Wine/bin/wine64"
+wine_lib="$libraries/Wine/lib"
 dxvk_x64="$libraries/DXVK/x64"
 dxvk_x32="$libraries/DXVK/x32"
 vulkan="$libraries/Vulkan"
@@ -79,6 +80,8 @@ for file in \
     "$libraries/WhiskyWineProvenance.plist" \
     "$hashes" \
     "$wine" \
+    "$wine_lib/libfreetype.6.dylib" \
+    "$wine_lib/libgnutls.30.dylib" \
     "$dxvk_x64/d3d11.dll" \
     "$dxvk_x64/dxgi.dll" \
     "$dxvk_x32/d3d11.dll" \
@@ -112,6 +115,13 @@ while IFS= read -r -d '' native_binary; do
         }
     fi
 done < <(find "$libraries" -type f -print0)
+
+while IFS= read -r -d '' library; do
+    otool -L "$library" | grep -Eq '/(usr/local|opt/homebrew)/' && {
+        print -u2 "Bundled Wine library still references the build host: $library"
+        exit 1
+    }
+done < <(find "$wine_lib" -type f -name '*.dylib' -print0)
 
 runtime_root="${libraries:A}"
 while IFS= read -r -d '' link; do
