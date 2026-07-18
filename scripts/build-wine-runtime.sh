@@ -189,18 +189,22 @@ if $graphics_runtime; then
 fi
 
 mkdir "$build_dir" "$stage_dir" "$runtime_dir"
+wine_configure_args=()
+if [[ "$architecture" == "x86_64" ]]; then
+    wine_configure_args=(--build=x86_64-apple-darwin --enable-archs=i386,x86_64)
+fi
 if $graphics_runtime; then
     (
         cd "$build_dir"
         PKG_CONFIG_PATH="$vulkan_loader_prefix/lib/pkgconfig:$vulkan_headers_prefix/share/pkgconfig" \
         CPPFLAGS="-I$vulkan_headers_prefix/include" \
         LDFLAGS="-L$vulkan_loader_prefix/lib" \
-        "$source_dir/configure"
+        "$source_dir/configure" "${wine_configure_args[@]}"
     ) > "$work_dir/configure.log" 2>&1
 else
     (
         cd "$build_dir"
-        "$source_dir/configure"
+        "$source_dir/configure" "${wine_configure_args[@]}"
     ) > "$work_dir/configure.log" 2>&1
 fi
 make -C "$build_dir" -j"$jobs" > "$work_dir/build.log" 2>&1
