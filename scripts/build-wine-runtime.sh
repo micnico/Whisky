@@ -168,8 +168,10 @@ for artifact in "$archive" "$archive.sha256" "$manifest"; do
         exit 1
     fi
 done
+print "Cloning Wine $wine_tag"
 git clone --quiet --depth 1 --branch "$wine_tag" "$WINE_SOURCE" "$source_dir"
 if $graphics_runtime; then
+    print "Cloning DXVK $dxvk_tag and MoltenVK $moltenvk_tag"
     git clone --quiet --depth 1 --branch "$dxvk_tag" --recursive "$DXVK_SOURCE" "$dxvk_source_dir"
     git clone --quiet --depth 1 --branch "$moltenvk_tag" "$MOLTENVK_SOURCE" "$moltenvk_source_dir"
 fi
@@ -194,6 +196,7 @@ if [[ "$architecture" == "x86_64" ]]; then
     wine_configure_args=(--build=x86_64-apple-darwin --enable-archs=i386,x86_64)
 fi
 if $graphics_runtime; then
+    print "Configuring Wine for $architecture"
     (
         cd "$build_dir"
         PKG_CONFIG_PATH="$vulkan_loader_prefix/lib/pkgconfig:$vulkan_headers_prefix/share/pkgconfig" \
@@ -202,12 +205,15 @@ if $graphics_runtime; then
         "$source_dir/configure" "${wine_configure_args[@]}"
     ) > "$work_dir/configure.log" 2>&1
 else
+    print "Configuring Wine for $architecture"
     (
         cd "$build_dir"
         "$source_dir/configure" "${wine_configure_args[@]}"
     ) > "$work_dir/configure.log" 2>&1
 fi
+print "Building Wine"
 make -C "$build_dir" -j"$jobs" > "$work_dir/build.log" 2>&1
+print "Installing Wine"
 make -C "$build_dir" install DESTDIR="$stage_dir" > "$work_dir/install.log" 2>&1
 
 mkdir -p "$runtime_dir/Libraries"
@@ -215,12 +221,14 @@ mv "$stage_dir/usr/local" "$runtime_dir/Libraries/Wine"
 ln -s wine "$runtime_dir/Libraries/Wine/bin/wine64"
 
 if $graphics_runtime; then
+    print "Building MoltenVK"
     (
         cd "$moltenvk_source_dir"
         ./fetchDependencies --macos
         make macos
     ) > "$work_dir/moltenvk.log" 2>&1
 
+    print "Building DXVK"
     mkdir "$dxvk_output_dir"
     meson setup "$work_dir/dxvk-x64" "$dxvk_source_dir" --cross-file "$dxvk_source_dir/build-win64.txt" \
         --buildtype release --prefix "$dxvk_output_dir/x64" > "$work_dir/dxvk-x64.log" 2>&1
