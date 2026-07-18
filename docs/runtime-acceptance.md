@@ -2,7 +2,7 @@
 
 Publish a runtime only when its archive, manifest, provenance, Developer ID signature, and smoke-test record are available together. Do not overwrite the legacy runtime or make an unverified archive the default.
 
-Build the base ARM64 Wine runtime with `scripts/build-wine-runtime.sh`. It accepts only a stable Wine tag, clones the official WineHQ source, records its exact revision in `Libraries/WhiskyWineProvenance.plist`, then writes the archive, checksum file, and client manifest. It requires Homebrew `bison`, `llvm`, and `lld`.
+`scripts/build-wine-runtime.sh` builds either `arm64` (the default) or `x86_64` Wine from official source, records the exact revision and host architecture in `Libraries/WhiskyWineProvenance.plist`, then writes the archive, checksum file, and client manifest. The `x86_64` build must run in an Intel Homebrew environment and enables Wine's `i386,x86_64` WoW64 PE mode; on Apple silicon it runs through Rosetta.
 
 ```sh
 scripts/build-wine-runtime.sh \
@@ -44,9 +44,11 @@ For a candidate built by `Build Graphics Runtime Candidate`, download the archiv
 gh attestation verify wine-11.0-dxvk-moltenvk-arm64.tar.gz -R OWNER/REPOSITORY
 ```
 
-The workflow attests the archive, its SHA-256 file, and the client manifest together. This proves the candidate's GitHub Actions origin; the client still enforces the manifest digest at install time. It does not make an unsigned runtime executable.
+Replace `arm64` with `x86_64` for that candidate architecture. The workflow attests the archive, its SHA-256 file, and the client manifest together. This proves the candidate's GitHub Actions origin; the client still enforces the manifest digest at install time. It does not make an unsigned runtime releasable.
 
-On current macOS releases, Wine's nested Mach-O helpers must be signed with a `Developer ID Application` identity before they can be smoke-tested or released. To enable the executable CI gate, configure the repository secrets `WHISKY_RUNTIME_SIGNING_P12_BASE64` (a base64-encoded Developer ID `.p12`, including its private key) and `WHISKY_RUNTIME_SIGNING_P12_PASSWORD`. The workflow imports that identity into an ephemeral runner keychain, signs every Mach-O file before calculating the runtime file hashes, verifies every Mach-O's Developer ID authority, and then runs the Wine/WoW64 smoke test. Without those secrets it produces an attestable **unsigned candidate** and records that the executable smoke test was skipped; it must not be published. Notarize the final release archive or enclosing app as required by the intended distribution path.
+Every distributed runtime needs a `Developer ID Application` signature and any required notarization. To enable that release gate, configure `WHISKY_RUNTIME_SIGNING_P12_BASE64` (a base64-encoded Developer ID `.p12`, including its private key) and `WHISKY_RUNTIME_SIGNING_P12_PASSWORD`. The workflow imports that identity into an ephemeral runner keychain, signs every Mach-O file before calculating runtime file hashes, verifies Developer ID authority, and runs the Wine/WoW64 smoke test.
+
+Without those secrets, the workflow produces an attestable **unsigned candidate** that must not be published. The native `arm64` candidate records an explicitly skipped executable smoke test because current system policy blocks its unsigned Wine helpers. The `x86_64` candidate is built and smoke-tested on an Intel runner, then requires a separate Rosetta regression on Apple silicon before it may be accepted. Notarize the final release archive or enclosing app as required by the intended distribution path.
 
 ## Bottle migration
 
