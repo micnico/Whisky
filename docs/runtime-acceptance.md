@@ -43,7 +43,9 @@ Keep the archive's top-level `Libraries` directory. A versioned release must als
 For a candidate built by `Build Graphics Runtime Candidate`, download the archive and verify its GitHub provenance before the normal archive checks:
 
 ```sh
-gh attestation verify wine-11.0-dxvk-moltenvk-arm64.tar.gz -R OWNER/REPOSITORY
+gh attestation verify wine-11.0-dxvk-moltenvk-arm64.tar.gz \
+  -R OWNER/REPOSITORY \
+  --signer-workflow OWNER/REPOSITORY/.github/workflows/BuildGraphicsRuntime.yml
 ```
 
 Replace `arm64` with `x86_64` for that candidate architecture. The workflow attests the archive, its SHA-256 file, and the client manifest together. This proves the candidate's GitHub Actions origin; the client still enforces the manifest digest at install time. It does not make an unsigned runtime releasable.
