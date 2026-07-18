@@ -82,6 +82,7 @@ for file in \
     "$wine" \
     "$wine_lib/libfreetype.6.dylib" \
     "$wine_lib/libgnutls.30.dylib" \
+    "$wine_lib/libSDL2-2.0.0.dylib" \
     "$dxvk_x64/d3d11.dll" \
     "$dxvk_x64/dxgi.dll" \
     "$dxvk_x32/d3d11.dll" \
@@ -101,6 +102,9 @@ plutil -lint "$libraries/WhiskyWineVersion.plist" "$libraries/WhiskyWineProvenan
     exit 1
 }
 file -L "$wine" | grep -q "$architecture"
+for library in "$wine_lib/libfreetype.6.dylib" "$wine_lib/libgnutls.30.dylib" "$wine_lib/libSDL2-2.0.0.dylib"; do
+    file "$library" | grep -q "$architecture"
+done
 file "$dxvk_x64/d3d11.dll" | grep -q PE32+
 file "$dxvk_x32/d3d11.dll" | grep -q 'PE32 executable'
 file "$vulkan/libMoltenVK.dylib" | grep -q "$architecture"

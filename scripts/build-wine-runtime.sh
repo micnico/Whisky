@@ -126,6 +126,7 @@ llvm_prefix="$(brew --prefix llvm)"
 lld_prefix="$(brew --prefix lld)"
 freetype_prefix="$(brew --prefix freetype)"
 gnutls_prefix="$(brew --prefix gnutls)"
+sdl2_prefix="$(brew --prefix sdl2)"
 brew_prefix="$(brew --prefix)"
 export PATH="$llvm_prefix/bin:$lld_prefix/bin:$bison_prefix/bin:$PATH"
 
@@ -198,9 +199,9 @@ wine_configure_args=()
 if [[ "$architecture" == "x86_64" ]]; then
     wine_configure_args=(--build=x86_64-apple-darwin --enable-archs=i386,x86_64)
 fi
-wine_pkg_config_path="$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig"
-wine_cppflags="-I$freetype_prefix/include -I$gnutls_prefix/include"
-wine_ldflags="-L$freetype_prefix/lib -L$gnutls_prefix/lib"
+wine_pkg_config_path="$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig:$sdl2_prefix/lib/pkgconfig"
+wine_cppflags="-I$freetype_prefix/include -I$gnutls_prefix/include -I$sdl2_prefix/include"
+wine_ldflags="-L$freetype_prefix/lib -L$gnutls_prefix/lib -L$sdl2_prefix/lib"
 if $graphics_runtime; then
     print "Configuring Wine for $architecture"
     (
@@ -250,6 +251,7 @@ bundle_homebrew_library() {
 
 bundle_homebrew_library "$freetype_prefix/lib/libfreetype.6.dylib"
 bundle_homebrew_library "$gnutls_prefix/lib/libgnutls.30.dylib"
+bundle_homebrew_library "$sdl2_prefix/lib/libSDL2-2.0.0.dylib"
 
 while IFS= read -r -d '' library; do
     install_name_tool -id "@loader_path/${library:t}" "$library"
@@ -329,6 +331,8 @@ fi
 /usr/libexec/PlistBuddy -c 'Add :freetypeLicense string FTL' "$provenance_plist"
 /usr/libexec/PlistBuddy -c "Add :gnutlsVersion string $(brew info --json=v2 gnutls | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
 /usr/libexec/PlistBuddy -c 'Add :gnutlsLicense string LGPL-2.1-or-later' "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :sdl2Version string $(brew info --json=v2 sdl2 | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
+/usr/libexec/PlistBuddy -c 'Add :sdl2License string Zlib' "$provenance_plist"
 if $graphics_runtime; then
     /usr/libexec/PlistBuddy -c "Add :dxvkSource string $DXVK_SOURCE" "$provenance_plist"
     /usr/libexec/PlistBuddy -c "Add :dxvkTag string $dxvk_tag" "$provenance_plist"

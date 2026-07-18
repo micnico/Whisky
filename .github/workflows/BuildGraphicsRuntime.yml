@@ -82,7 +82,7 @@ jobs:
       - name: Install build dependencies
         run: >-
           brew install bison llvm lld meson ninja mingw-w64 cmake glslang
-          vulkan-headers vulkan-loader freetype gnutls
+          vulkan-headers vulkan-loader freetype gnutls sdl2
       - name: Build candidate
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
