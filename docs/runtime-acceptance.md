@@ -12,6 +12,8 @@ scripts/build-wine-runtime.sh \
 
 Pass both `--dxvk-tag` and `--moltenvk-tag` to build the opt-in DXVK + MoltenVK candidate. Pass the matching full `--wine-revision`, `--dxvk-revision`, and `--moltenvk-revision` values to fail the build if a tag no longer resolves to the reviewed commit. The build records the revisions and writes `WhiskyWineBinaries.sha256`; validate its archive with `scripts/verify-graphics-runtime.sh` before publishing.
 
+Candidates without the `architecture` field in `WhiskyWineProvenance.plist` are intentionally rejected. Rebuild them with the current script; do not retag or rename an older archive.
+
 ## Manifest
 
 Publish `WhiskyWineVersion.plist` with these fields. `archiveURL` must use HTTPS and `sha256` is the lowercase SHA-256 digest of the exact archive bytes.
