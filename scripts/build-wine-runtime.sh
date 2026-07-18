@@ -1,7 +1,7 @@
 #!/bin/zsh
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Produce an arm64 Whisky runtime from official Wine, DXVK, and MoltenVK tags.
+# Produce a Whisky runtime from official Wine, DXVK, and MoltenVK tags.
 set -euo pipefail
 
 readonly WINE_SOURCE=https://gitlab.winehq.org/wine/wine.git
@@ -15,7 +15,8 @@ usage() {
     print "Options:"
     print "  --output DIR       Output directory (default: ./build/runtime)"
     print "  --workdir DIR      Temporary build directory (default: /tmp/whisky-wine-X.Y)"
-    print "  --runtime-id ID    Runtime identifier (default: wine-X.Y-arm64)"
+    print "  --runtime-id ID    Runtime identifier (default: wine-X.Y-ARCH)"
+    print "  --architecture ARCH Build architecture: arm64 or x86_64 (default: arm64)"
     print "  --wine-revision SHA Verify the checked-out Wine revision"
     print "  --dxvk-tag TAG     Build DXVK from source (requires --moltenvk-tag)"
     print "  --dxvk-revision SHA Verify the checked-out DXVK revision"
@@ -31,6 +32,7 @@ archive_url=""
 output_dir="$PWD/build/runtime"
 work_dir=""
 runtime_id=""
+architecture="arm64"
 dxvk_tag=""
 dxvk_revision=""
 moltenvk_tag=""
@@ -46,6 +48,7 @@ while (( $# )); do
         --output) output_dir="$2"; shift 2 ;;
         --workdir) work_dir="$2"; shift 2 ;;
         --runtime-id) runtime_id="$2"; shift 2 ;;
+        --architecture) architecture="$2"; shift 2 ;;
         --dxvk-tag) dxvk_tag="$2"; shift 2 ;;
         --dxvk-revision) dxvk_revision="$2"; shift 2 ;;
         --moltenvk-tag) moltenvk_tag="$2"; shift 2 ;;
@@ -65,6 +68,14 @@ fi
 if [[ ! "$jobs" =~ '^[1-9][0-9]*$' ]]; then
     print -u2 -- "--jobs must be a positive integer."
     exit 2
+fi
+if [[ "$architecture" != "arm64" && "$architecture" != "x86_64" ]]; then
+    print -u2 -- "--architecture must be arm64 or x86_64."
+    exit 2
+fi
+if [[ "$(uname -m)" != "$architecture" ]]; then
+    print -u2 -- "Build this runtime with: arch -$architecture $SCRIPT_NAME ..."
+    exit 1
 fi
 for revision in "$wine_revision" "$dxvk_revision" "$moltenvk_revision"; do
     [[ -z "$revision" || "$revision" =~ '^[0-9a-f]{40}$' ]] || {
@@ -88,7 +99,7 @@ if [[ -n "$dxvk_tag" || -n "$moltenvk_tag" ]]; then
 fi
 
 version="${wine_tag#wine-}"
-runtime_id="${runtime_id:-wine-${version}-arm64}"
+runtime_id="${runtime_id:-wine-${version}-${architecture}}"
 work_dir="${work_dir:-${TMPDIR:-/tmp}/whisky-${runtime_id}}"
 if [[ ! "$runtime_id" =~ '^[A-Za-z0-9._-]+$' ]]; then
     print -u2 -- "--runtime-id may contain only letters, digits, '.', '-', and '_'."
@@ -255,7 +266,7 @@ fi
 /usr/libexec/PlistBuddy -c "Add :wineTag string $wine_tag" "$provenance_plist"
 /usr/libexec/PlistBuddy -c "Add :wineRevision string $(git -C "$source_dir" rev-parse HEAD)" "$provenance_plist"
 /usr/libexec/PlistBuddy -c 'Add :wineLicense string LGPL-2.1-or-later' "$provenance_plist"
-/usr/libexec/PlistBuddy -c 'Add :architecture string arm64' "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :architecture string $architecture" "$provenance_plist"
 if $graphics_runtime; then
     /usr/libexec/PlistBuddy -c "Add :dxvkSource string $DXVK_SOURCE" "$provenance_plist"
     /usr/libexec/PlistBuddy -c "Add :dxvkTag string $dxvk_tag" "$provenance_plist"

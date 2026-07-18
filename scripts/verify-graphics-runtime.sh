@@ -5,22 +5,29 @@
 set -euo pipefail
 
 usage() {
-    print "Usage: ${0:t} --archive PATH --workdir DIR [--require-developer-id]"
+    print "Usage: ${0:t} --archive PATH --workdir DIR [--architecture ARCH] [--require-developer-id]"
 }
 
 archive=""
 work_dir=""
 require_developer_id=false
+architecture="arm64"
 
 while (( $# )); do
     case "$1" in
         --archive) archive="$2"; shift 2 ;;
         --workdir) work_dir="$2"; shift 2 ;;
+        --architecture) architecture="$2"; shift 2 ;;
         --require-developer-id) require_developer_id=true; shift ;;
         --help) usage; exit 0 ;;
         *) print -u2 "Unknown argument: $1"; usage; exit 2 ;;
     esac
 done
+
+if [[ "$architecture" != "arm64" && "$architecture" != "x86_64" ]]; then
+    print -u2 -- "--architecture must be arm64 or x86_64."
+    exit 2
+fi
 
 if [[ -z "$archive" || -z "$work_dir" || ! -f "$archive" || -e "$work_dir" ]]; then
     print -u2 -- "--archive must exist and --workdir must not exist."
@@ -86,10 +93,14 @@ for file in \
 done
 
 plutil -lint "$libraries/WhiskyWineVersion.plist" "$libraries/WhiskyWineProvenance.plist"
-file -L "$wine" | grep -q arm64
+[[ "$(plutil -extract architecture raw "$libraries/WhiskyWineProvenance.plist")" == "$architecture" ]] || {
+    print -u2 -- "Runtime provenance architecture does not match $architecture"
+    exit 1
+}
+file -L "$wine" | grep -q "$architecture"
 file "$dxvk_x64/d3d11.dll" | grep -q PE32+
 file "$dxvk_x32/d3d11.dll" | grep -q 'PE32 executable'
-file "$vulkan/libMoltenVK.dylib" | grep -q arm64
+file "$vulkan/libMoltenVK.dylib" | grep -q "$architecture"
 codesign -v "$vulkan/libMoltenVK.dylib" "$vulkan/libvulkan.1.dylib"
 while IFS= read -r -d '' native_binary; do
     /usr/bin/file -b "$native_binary" | grep -q 'Mach-O' || continue
