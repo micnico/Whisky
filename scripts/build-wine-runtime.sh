@@ -250,13 +250,15 @@ if $graphics_runtime; then
         "$runtime_dir/Libraries/Vulkan/libMoltenVK.dylib"
 fi
 
-if [[ "$code_sign_identity" != "-" ]]; then
-    while IFS= read -r -d '' binary; do
-        if /usr/bin/file -b "$binary" | grep -q 'Mach-O'; then
+while IFS= read -r -d '' binary; do
+    if /usr/bin/file -b "$binary" | grep -q 'Mach-O'; then
+        if [[ "$code_sign_identity" == "-" ]]; then
+            codesign --force --sign - "$binary"
+        else
             codesign --force --timestamp --sign "$code_sign_identity" "$binary"
         fi
-    done < <(find "$runtime_dir/Libraries" -type f -print0)
-fi
+    fi
+done < <(find "$runtime_dir/Libraries" -type f -print0)
 
 IFS=. read -r major minor <<< "$version"
 version_plist="$runtime_dir/Libraries/WhiskyWineVersion.plist"
