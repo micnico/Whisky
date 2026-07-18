@@ -46,6 +46,16 @@ gh attestation verify wine-11.0-dxvk-moltenvk-arm64.tar.gz -R OWNER/REPOSITORY
 
 Replace `arm64` with `x86_64` for that candidate architecture. The workflow attests the archive, its SHA-256 file, and the client manifest together. This proves the candidate's GitHub Actions origin; the client still enforces the manifest digest at install time. It does not make an unsigned runtime releasable.
 
+Run the Apple-silicon Rosetta gate separately, using a fresh directory outside the Whisky application data:
+
+```sh
+scripts/verify-x86-runtime-on-apple-silicon.sh \
+  --archive wine-11.0-dxvk-moltenvk-x86_64.tar.gz \
+  --workdir /private/tmp/whisky-wine11-rosetta-smoke
+```
+
+The script first performs the static archive checks, then runs `wineboot -u` and the repository's 32-bit sample in an isolated `WINEPREFIX`. It does not create, modify, or migrate a Whisky Bottle, and leaves its work directory for inspection.
+
 Every distributed runtime needs a `Developer ID Application` signature and any required notarization. To enable that release gate, configure `WHISKY_RUNTIME_SIGNING_P12_BASE64` (a base64-encoded Developer ID `.p12`, including its private key) and `WHISKY_RUNTIME_SIGNING_P12_PASSWORD`. The workflow imports that identity into an ephemeral runner keychain, signs every Mach-O file before calculating runtime file hashes, verifies Developer ID authority, and runs the Wine/WoW64 smoke test.
 
 Without those secrets, the workflow produces an attestable **unsigned candidate** that must not be published. The native `arm64` candidate records an explicitly skipped executable smoke test because current system policy blocks its unsigned Wine helpers. The `x86_64` candidate is built and smoke-tested on an Intel runner, then requires a separate Rosetta regression on Apple silicon before it may be accepted. Notarize the final release archive or enclosing app as required by the intended distribution path.
