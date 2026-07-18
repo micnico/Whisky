@@ -138,6 +138,7 @@ jobs:
           fi
       - name: Smoke test Wine and WoW64
         if: ${{ env.RUNTIME_SIGNED == 'true' || inputs.architecture == 'x86_64' }}
+        timeout-minutes: 15
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
         run: |

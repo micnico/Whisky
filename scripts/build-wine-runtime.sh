@@ -240,7 +240,7 @@ bundle_homebrew_library() {
     cp -L "$source" "$destination"
     while IFS= read -r dependency; do
         dependency="${dependency#"${dependency%%[![:space:]]*}"}"
-        dependency="${dependency%% (*}"
+        dependency="${dependency%% \(*}"
         if [[ "$dependency" == "$brew_prefix/"* ]]; then
             bundle_homebrew_library "$dependency"
         fi
@@ -255,7 +255,7 @@ while IFS= read -r -d '' library; do
     install_name_tool -id "@loader_path/${library:t}" "$library"
     while IFS= read -r dependency; do
         dependency="${dependency#"${dependency%%[![:space:]]*}"}"
-        dependency="${dependency%% (*}"
+        dependency="${dependency%% \(*}"
         if [[ "$dependency" == "$brew_prefix/"* && -f "$wine_library_dir/${dependency:t}" ]]; then
             install_name_tool -change "$dependency" "@loader_path/${dependency:t}" "$library"
         fi
