@@ -127,6 +127,20 @@ lld_prefix="$(brew --prefix lld)"
 freetype_prefix="$(brew --prefix freetype)"
 gnutls_prefix="$(brew --prefix gnutls)"
 sdl2_prefix="$(brew --prefix sdl2)"
+sdl2_library="$sdl2_prefix/lib/libSDL2-2.0.0.dylib"
+if [[ ! -f "$sdl2_library" ]]; then
+    sdl2_installed=("${(z)$(brew list --versions sdl2)}")
+    (( ${#sdl2_installed} >= 2 )) || {
+        print -u2 "Homebrew reports no installed SDL2 formula."
+        exit 1
+    }
+    sdl2_library="$(brew --cellar)/${sdl2_installed[1]}/${sdl2_installed[2]}/lib/libSDL2-2.0.0.dylib"
+    [[ -n "$sdl2_library" && -f "$sdl2_library" ]] || {
+        print -u2 "Missing libSDL2-2.0.0.dylib after installing sdl2."
+        exit 1
+    }
+    sdl2_prefix="${sdl2_library:h:h}"
+fi
 brew_prefix="$(brew --prefix)"
 export PATH="$llvm_prefix/bin:$lld_prefix/bin:$bison_prefix/bin:$PATH"
 
@@ -251,7 +265,7 @@ bundle_homebrew_library() {
 
 bundle_homebrew_library "$freetype_prefix/lib/libfreetype.6.dylib"
 bundle_homebrew_library "$gnutls_prefix/lib/libgnutls.30.dylib"
-bundle_homebrew_library "$sdl2_prefix/lib/libSDL2-2.0.0.dylib"
+bundle_homebrew_library "$sdl2_library"
 
 while IFS= read -r -d '' library; do
     install_name_tool -id "@loader_path/${library:t}" "$library"
