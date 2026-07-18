@@ -41,6 +41,11 @@ on:
         required: true
         default: db445ff2042d9ce348c439ad8451112f354b8d2a
         type: string
+      build_candidate:
+        description: Build Wine after preflight (disabled by default)
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -66,6 +71,7 @@ jobs:
       - name: Verify bundleable Wine runtime dependencies
         run: scripts/verify-wine-runtime-dependencies.sh --architecture "${{ inputs.architecture }}"
   build:
+    if: ${{ inputs.build_candidate }}
     needs: preflight
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 180
