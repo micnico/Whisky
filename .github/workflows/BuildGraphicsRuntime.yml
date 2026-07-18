@@ -3,6 +3,14 @@ name: Build Graphics Runtime Candidate
 on:
   workflow_dispatch:
     inputs:
+      architecture:
+        description: Runtime host architecture
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x86_64
       wine_tag:
         description: Official stable Wine tag
         required: true
@@ -41,12 +49,12 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
-      - name: Confirm Apple Silicon runner
-        run: test "$(uname -m)" = arm64
+      - name: Confirm requested runner architecture
+        run: test "$(uname -m)" = "${{ inputs.architecture }}"
       - name: Prepare optional Developer ID signing
         env:
           RUNTIME_SIGNING_P12_BASE64: ${{ secrets.WHISKY_RUNTIME_SIGNING_P12_BASE64 }}
@@ -81,7 +89,7 @@ jobs:
           DXVK_TAG: ${{ inputs.dxvk_tag }}
           MOLTENVK_TAG: ${{ inputs.moltenvk_tag }}
         run: |
-          runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
+          runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
           signing_args=()
           if [[ -n "${RUNTIME_CODE_SIGN_IDENTITY:-}" ]]; then
             signing_args+=(--code-sign-identity "$RUNTIME_CODE_SIGN_IDENTITY")
@@ -94,6 +102,7 @@ jobs:
             --moltenvk-tag "$MOLTENVK_TAG" \
             --moltenvk-revision "${{ inputs.moltenvk_revision }}" \
             --runtime-id "$runtime_id" \
+            --architecture "${{ inputs.architecture }}" \
             --archive-url "https://example.invalid/$runtime_id.tar.gz" \
             --workdir "$RUNNER_TEMP/runtime-build" \
             --output "$RUNNER_TEMP/runtime-output" \
@@ -105,7 +114,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/runtime-output"
-          runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
+          runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
           if [[ "${RUNTIME_SIGNED:-false}" == "true" ]]; then
             require_developer_id=--require-developer-id
           else
@@ -119,19 +128,21 @@ jobs:
             "$GITHUB_WORKSPACE/scripts/verify-graphics-runtime.sh" \
               --archive "$runtime_id.tar.gz" \
               --workdir "$RUNNER_TEMP/runtime-verify" \
+              --architecture "${{ inputs.architecture }}" \
               "$require_developer_id"
           else
             "$GITHUB_WORKSPACE/scripts/verify-graphics-runtime.sh" \
               --archive "$runtime_id.tar.gz" \
-              --workdir "$RUNNER_TEMP/runtime-verify"
+              --workdir "$RUNNER_TEMP/runtime-verify" \
+              --architecture "${{ inputs.architecture }}"
           fi
       - name: Smoke test Wine and WoW64
-        if: ${{ env.RUNTIME_SIGNED == 'true' }}
+        if: ${{ env.RUNTIME_SIGNED == 'true' || inputs.architecture == 'x86_64' }}
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
         run: |
           set -euo pipefail
-          runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
+          runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
           smoke_dir="$RUNNER_TEMP/runtime-smoke"
           mkdir "$smoke_dir"
           tar -C "$smoke_dir" -xzf "$RUNNER_TEMP/runtime-output/$runtime_id.tar.gz"
@@ -149,10 +160,10 @@ jobs:
             "$wine" "$smoke_dir/smoke-win32.exe"
           } 2>&1 | tee "$RUNNER_TEMP/wow64-smoke.log"
       - name: Record skipped executable smoke test
-        if: ${{ env.RUNTIME_SIGNED != 'true' }}
+        if: ${{ env.RUNTIME_SIGNED != 'true' && inputs.architecture == 'arm64' }}
         run: >-
           printf '%s\n'
-          'SKIPPED: Wine/WoW64 execution requires a configured Developer ID Application signing certificate.'
+          'SKIPPED: Native arm64 Wine/WoW64 execution requires a configured Developer ID Application signing certificate.'
           > "$RUNNER_TEMP/wow64-smoke.log"
       - name: Attest candidate artifacts
         uses: actions/attest@v4
