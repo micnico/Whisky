@@ -239,7 +239,23 @@ jobs:
             ulimit -a
             vm_stat
             ps -axo pid,ppid,rss,command
-            "$wine" wineboot -u
+            "$wine" wineboot -u &
+            wineboot_pid=$!
+            for _ in {1..90}; do
+              if ! kill -0 "$wineboot_pid" 2>/dev/null; then
+                wait "$wineboot_pid"
+                wineboot_pid=
+                break
+              fi
+              sleep 1
+            done
+            if [[ -n "${wineboot_pid:-}" ]]; then
+              echo "wineboot remained running for 90 seconds; process tree follows" >&2
+              ps -axo pid,ppid,rss,command >&2
+              kill "$wineboot_pid" 2>/dev/null || true
+              wait "$wineboot_pid" || true
+              exit 1
+            fi
             "$wine" "$smoke_dir/smoke-win32.exe"
           } 2>&1 | tee "$RUNNER_TEMP/wow64-smoke.log"
       - name: Record skipped executable smoke test
