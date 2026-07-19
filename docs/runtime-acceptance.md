@@ -58,7 +58,7 @@ scripts/verify-x86-runtime-on-apple-silicon.sh \
   --workdir /private/tmp/whisky-wine11-rosetta-smoke
 ```
 
-The script first performs the static archive checks, then runs `wineboot -u` and the repository's 32-bit sample in an isolated `WINEPREFIX`. It does not create, modify, or migrate a Whisky Bottle, and leaves its work directory for inspection.
+The script first performs the static archive checks, then runs `wineboot -u` and the repository's 32-bit sample in an isolated `WINEPREFIX`. Its bootstrap command temporarily disables `mscoree` and `mshtml`: Wine's clean-prefix registration would otherwise invoke the interactive Mono/Gecko downloader when those add-ons are absent. The override is not stored in the prefix and is removed before the 32-bit sample runs. The script does not create, modify, or migrate a Whisky Bottle, and leaves its work directory for inspection.
 
 ## Verify an existing build artifact without rebuilding Wine
 
