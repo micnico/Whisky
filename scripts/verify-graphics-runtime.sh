@@ -35,7 +35,7 @@ if [[ -z "$archive" || -z "$work_dir" || ! -f "$archive" || -e "$work_dir" ]]; t
     exit 2
 fi
 
-for command in cmp codesign file find grep openssl otool plutil sort tar xargs; do
+for command in cmp codesign file find grep openssl otool plutil sort strings tar xargs; do
     command -v "$command" >/dev/null || {
         print -u2 "Missing required command: $command"
         exit 1
@@ -109,6 +109,28 @@ file "$dxvk_x64/d3d11.dll" | grep -q PE32+
 file "$dxvk_x32/d3d11.dll" | grep -q 'PE32 executable'
 file "$vulkan/libMoltenVK.dylib" | grep -q "$architecture"
 codesign -v "$vulkan/libMoltenVK.dylib" "$vulkan/libvulkan.1.dylib"
+
+contains_loader_name() {
+    find "$wine_lib/wine" -type f -name '*.so' -exec strings {} + | grep -Fxq "$1"
+}
+
+contains_loader_name '@loader_path/../../libfreetype.6.dylib' || {
+    print -u2 'Wine modules do not resolve FreeType from the bundled runtime path.'
+    exit 1
+}
+contains_loader_name '@loader_path/../../libgnutls.30.dylib' || {
+    print -u2 'Wine modules do not resolve GnuTLS from the bundled runtime path.'
+    exit 1
+}
+win32u_module="$(find "$wine_lib/wine" -type f -path '*-unix/win32u.so' -print -quit)"
+[[ -n "$win32u_module" ]] || {
+    print -u2 'Wine win32u Unix module is missing.'
+    exit 1
+}
+strings "$win32u_module" | grep -Fxq '@loader_path/../../../../Vulkan/libvulkan.1.dylib' || {
+    print -u2 'Wine win32u does not resolve Vulkan from the bundled runtime path.'
+    exit 1
+}
 while IFS= read -r -d '' native_binary; do
     /usr/bin/file -b "$native_binary" | grep -q 'Mach-O' || continue
     codesign -v "$native_binary"

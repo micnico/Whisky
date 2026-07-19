@@ -233,6 +233,8 @@ jobs:
             test "$("$wine" --version)" = "$WINE_TAG"
             i686-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-win32.c" \
               -o "$smoke_dir/smoke-win32.exe"
+            x86_64-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-d3d11.c" \
+              -o "$smoke_dir/smoke-d3d11.exe" -ld3d11 -ldxgi
             export WINEPREFIX="$smoke_dir/prefix"
             export VK_ICD_FILENAMES="$smoke_dir/Libraries/Vulkan/MoltenVK_icd.json"
             export DYLD_FALLBACK_LIBRARY_PATH="$smoke_dir/Libraries/Vulkan:$smoke_dir/Libraries/Wine/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
@@ -241,6 +243,9 @@ jobs:
             # cannot complete on a CI runner. Keep this override scoped to bootstrap.
             WINEDLLOVERRIDES="mscoree,mshtml=" "$wine" wineboot -u
             "$wine" "$smoke_dir/smoke-win32.exe"
+            cp "$smoke_dir/Libraries/DXVK/x64/"*.dll "$WINEPREFIX/drive_c/windows/system32/"
+            cp "$smoke_dir/Libraries/DXVK/x32/"*.dll "$WINEPREFIX/drive_c/windows/syswow64/"
+            WINEDLLOVERRIDES="d3d11,dxgi=n,b" "$wine" "$smoke_dir/smoke-d3d11.exe"
           } 2>&1 | tee "$RUNNER_TEMP/wow64-smoke.log"
       - name: Record skipped executable smoke test
         if: ${{ env.RUNTIME_SIGNED != 'true' && inputs.architecture == 'arm64' }}

@@ -28,7 +28,7 @@ if [[ "$(uname -m)" != "arm64" || -z "$archive" || -z "$work_dir" || ! -f "$arch
     exit 2
 fi
 
-for command in arch i686-w64-mingw32-gcc plutil tar; do
+for command in arch i686-w64-mingw32-gcc plutil tar x86_64-w64-mingw32-gcc; do
     command -v "$command" >/dev/null || {
         print -u2 "Missing required command: $command"
         exit 1
@@ -51,6 +51,7 @@ wine="$smoke_dir/Libraries/Wine/bin/wine64"
 wine_tag="$(plutil -extract wineTag raw "$smoke_dir/Libraries/WhiskyWineProvenance.plist")"
 test "$(arch -x86_64 "$wine" --version)" = "$wine_tag"
 i686-w64-mingw32-gcc "$script_dir/fixtures/smoke-win32.c" -o "$smoke_dir/smoke-win32.exe"
+x86_64-w64-mingw32-gcc "$script_dir/fixtures/smoke-d3d11.c" -o "$smoke_dir/smoke-d3d11.exe" -ld3d11 -ldxgi
 export WINEPREFIX="$smoke_dir/prefix"
 export VK_ICD_FILENAMES="$smoke_dir/Libraries/Vulkan/MoltenVK_icd.json"
 export DYLD_FALLBACK_LIBRARY_PATH="$smoke_dir/Libraries/Vulkan:$smoke_dir/Libraries/Wine/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
@@ -58,5 +59,8 @@ export DYLD_FALLBACK_LIBRARY_PATH="$smoke_dir/Libraries/Vulkan:$smoke_dir/Librar
 # in the prefix or apply it to the actual WoW64 sample.
 WINEDLLOVERRIDES="mscoree,mshtml=" arch -x86_64 "$wine" wineboot -u
 arch -x86_64 "$wine" "$smoke_dir/smoke-win32.exe"
+cp "$smoke_dir/Libraries/DXVK/x64/"*.dll "$WINEPREFIX/drive_c/windows/system32/"
+cp "$smoke_dir/Libraries/DXVK/x32/"*.dll "$WINEPREFIX/drive_c/windows/syswow64/"
+WINEDLLOVERRIDES="d3d11,dxgi=n,b" arch -x86_64 "$wine" "$smoke_dir/smoke-d3d11.exe"
 
 print "Rosetta smoke test passed for $archive"

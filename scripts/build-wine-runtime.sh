@@ -216,10 +216,16 @@ fi
 wine_pkg_config_path="$freetype_prefix/lib/pkgconfig:$gnutls_prefix/lib/pkgconfig:$sdl2_prefix/lib/pkgconfig"
 wine_cppflags="-I$freetype_prefix/include -I$gnutls_prefix/include -I$sdl2_prefix/include"
 wine_ldflags="-L$freetype_prefix/lib -L$gnutls_prefix/lib -L$sdl2_prefix/lib"
+wine_soname_cache=(
+    "ac_cv_lib_soname_freetype=@loader_path/../../libfreetype.6.dylib"
+    "ac_cv_lib_soname_gnutls=@loader_path/../../libgnutls.30.dylib"
+)
 if $graphics_runtime; then
+    wine_soname_cache+=("ac_cv_lib_soname_vulkan=@loader_path/../../../../Vulkan/libvulkan.1.dylib")
     print "Configuring Wine for $architecture"
     (
         cd "$build_dir"
+        env "${wine_soname_cache[@]}" \
         PKG_CONFIG_PATH="$wine_pkg_config_path:$vulkan_loader_prefix/lib/pkgconfig:$vulkan_headers_prefix/share/pkgconfig" \
         CPPFLAGS="$wine_cppflags -I$vulkan_headers_prefix/include" \
         LDFLAGS="$wine_ldflags -L$vulkan_loader_prefix/lib" \
@@ -229,6 +235,7 @@ else
     print "Configuring Wine for $architecture"
     (
         cd "$build_dir"
+        env "${wine_soname_cache[@]}" \
         PKG_CONFIG_PATH="$wine_pkg_config_path" \
         CPPFLAGS="$wine_cppflags" \
         LDFLAGS="$wine_ldflags" \
