@@ -79,6 +79,18 @@ jobs:
           done
           source_run_id='${{ inputs.source_artifact_run_id }}'
           [[ -z "$source_run_id" || "$source_run_id" =~ ^[0-9]+$ ]]
+          verify_tag_revision() {
+            local source="$1" tag="$2" expected="$3" actual
+            actual="$(git ls-remote "$source" "refs/tags/$tag^{}" | awk 'NR == 1 { print $1 }')"
+            [[ -n "$actual" ]] || actual="$(git ls-remote "$source" "refs/tags/$tag" | awk 'NR == 1 { print $1 }')"
+            [[ "$actual" == "$expected" ]] || {
+              echo "Tag $tag resolved to ${actual:-nothing}, expected $expected" >&2
+              exit 1
+            }
+          }
+          verify_tag_revision https://gitlab.winehq.org/wine/wine.git '${{ inputs.wine_tag }}' '${{ inputs.wine_revision }}'
+          verify_tag_revision https://github.com/doitsujin/dxvk.git '${{ inputs.dxvk_tag }}' '${{ inputs.dxvk_revision }}'
+          verify_tag_revision https://github.com/KhronosGroup/MoltenVK.git '${{ inputs.moltenvk_tag }}' '${{ inputs.moltenvk_revision }}'
       - name: Install configure preflight dependencies
         run: >-
           brew install bison llvm lld freetype gnutls sdl2 vulkan-headers vulkan-loader

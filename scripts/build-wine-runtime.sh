@@ -242,6 +242,27 @@ else
         "$source_dir/configure" "${wine_configure_args[@]}"
     ) > "$work_dir/configure.log" 2>&1
 fi
+
+# MoltenVK and DXVK do not depend on Wine's compiled output. Build them before
+# the long Wine make so a graphics-toolchain failure cannot waste that time.
+if $graphics_runtime; then
+    print "Building MoltenVK"
+    (
+        cd "$moltenvk_source_dir"
+        ./fetchDependencies --macos
+        make macos
+    ) > "$work_dir/moltenvk.log" 2>&1
+
+    print "Building DXVK"
+    mkdir "$dxvk_output_dir"
+    meson setup "$work_dir/dxvk-x64" "$dxvk_source_dir" --cross-file "$dxvk_source_dir/build-win64.txt" \
+        --buildtype release --prefix "$dxvk_output_dir/x64" > "$work_dir/dxvk-x64.log" 2>&1
+    ninja -C "$work_dir/dxvk-x64" install >> "$work_dir/dxvk-x64.log" 2>&1
+    meson setup "$work_dir/dxvk-x32" "$dxvk_source_dir" --cross-file "$dxvk_source_dir/build-win32.txt" \
+        --buildtype release --prefix "$dxvk_output_dir/x32" > "$work_dir/dxvk-x32.log" 2>&1
+    ninja -C "$work_dir/dxvk-x32" install >> "$work_dir/dxvk-x32.log" 2>&1
+fi
+
 print "Building Wine"
 make -C "$build_dir" -j"$jobs" > "$work_dir/build.log" 2>&1
 print "Installing Wine"
@@ -287,22 +308,6 @@ done < <(find "$wine_library_dir" -type f -name '*.dylib' -print0)
 true
 
 if $graphics_runtime; then
-    print "Building MoltenVK"
-    (
-        cd "$moltenvk_source_dir"
-        ./fetchDependencies --macos
-        make macos
-    ) > "$work_dir/moltenvk.log" 2>&1
-
-    print "Building DXVK"
-    mkdir "$dxvk_output_dir"
-    meson setup "$work_dir/dxvk-x64" "$dxvk_source_dir" --cross-file "$dxvk_source_dir/build-win64.txt" \
-        --buildtype release --prefix "$dxvk_output_dir/x64" > "$work_dir/dxvk-x64.log" 2>&1
-    ninja -C "$work_dir/dxvk-x64" install >> "$work_dir/dxvk-x64.log" 2>&1
-    meson setup "$work_dir/dxvk-x32" "$dxvk_source_dir" --cross-file "$dxvk_source_dir/build-win32.txt" \
-        --buildtype release --prefix "$dxvk_output_dir/x32" > "$work_dir/dxvk-x32.log" 2>&1
-    ninja -C "$work_dir/dxvk-x32" install >> "$work_dir/dxvk-x32.log" 2>&1
-
     mkdir -p "$runtime_dir/Libraries/DXVK/x64" "$runtime_dir/Libraries/DXVK/x32" "$runtime_dir/Libraries/Vulkan"
     cp "$dxvk_output_dir/x64/bin/"*.dll "$runtime_dir/Libraries/DXVK/x64/"
     cp "$dxvk_output_dir/x32/bin/"*.dll "$runtime_dir/Libraries/DXVK/x32/"
