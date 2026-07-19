@@ -79,10 +79,23 @@ jobs:
           done
           source_run_id='${{ inputs.source_artifact_run_id }}'
           [[ -z "$source_run_id" || "$source_run_id" =~ ^[0-9]+$ ]]
-      - name: Install runtime dependency formulas
-        run: brew install freetype gnutls sdl2
+      - name: Install configure preflight dependencies
+        run: >-
+          brew install bison llvm lld freetype gnutls sdl2 vulkan-headers vulkan-loader
       - name: Verify bundleable Wine runtime dependencies
         run: scripts/verify-wine-runtime-dependencies.sh --architecture "${{ inputs.architecture }}"
+      - name: Prove Wine configure embeds runtime loader paths
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/wine-configure-source"
+          work_dir="$RUNNER_TEMP/wine-configure-loader-paths"
+          git clone --quiet --depth 1 --branch "${{ inputs.wine_tag }}" \
+            https://gitlab.winehq.org/wine/wine.git "$source_dir"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "${{ inputs.wine_revision }}"
+          scripts/verify-wine-configure-loader-paths.sh \
+            --source "$source_dir" \
+            --workdir "$work_dir" \
+            --architecture "${{ inputs.architecture }}"
   build:
     if: ${{ inputs.build_candidate && inputs.source_artifact_run_id == '' }}
     needs: preflight
