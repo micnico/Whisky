@@ -6,17 +6,21 @@
 set -euo pipefail
 
 usage() {
-    print "Usage: ${0:t} --source DIR --workdir DIR [--architecture arm64|x86_64]"
+    print "Usage: ${0:t} --source DIR --workdir DIR [--architecture arm64|x86_64] [--compile-win32u] [--jobs N]"
 }
 
 source_dir=""
 work_dir=""
 architecture="$(uname -m)"
+compile_win32u=false
+jobs=3
 while (( $# )); do
     case "$1" in
         --source) source_dir="$2"; shift 2 ;;
         --workdir) work_dir="$2"; shift 2 ;;
         --architecture) architecture="$2"; shift 2 ;;
+        --compile-win32u) compile_win32u=true; shift ;;
+        --jobs) jobs="$2"; shift 2 ;;
         --help) usage; exit 0 ;;
         *) print -u2 "Unknown argument: $1"; usage; exit 2 ;;
     esac
@@ -31,8 +35,12 @@ if [[ "$architecture" != "arm64" && "$architecture" != "x86_64" ]] || [[ "$(unam
     print -u2 -- "Run this preflight on an arm64 or x86_64 host matching --architecture."
     exit 1
 fi
+[[ "$jobs" =~ '^[1-9][0-9]*$' ]] || {
+    print -u2 -- "--jobs must be a positive integer."
+    exit 2
+}
 
-for command in brew grep; do
+for command in brew grep make strings; do
     command -v "$command" >/dev/null || {
         print -u2 "Missing required command: $command"
         exit 1
@@ -91,5 +99,14 @@ for definition in \
         exit 1
     }
 done
+
+if $compile_win32u; then
+    module="$work_dir/build/dlls/win32u/win32u.so"
+    make -C "$work_dir/build" -j"$jobs" dlls/win32u/win32u.so
+    strings "$module" | grep -Fx '@loader_path/../../../../Vulkan/libvulkan.1.dylib' >/dev/null || {
+        print -u2 'Compiled win32u.so does not resolve Vulkan from the bundled runtime path.'
+        exit 1
+    }
+fi
 
 print "Wine configure loader-path preflight passed for $architecture."

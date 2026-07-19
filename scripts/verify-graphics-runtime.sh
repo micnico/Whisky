@@ -111,7 +111,7 @@ file "$vulkan/libMoltenVK.dylib" | grep -q "$architecture"
 codesign -v "$vulkan/libMoltenVK.dylib" "$vulkan/libvulkan.1.dylib"
 
 contains_loader_name() {
-    find "$wine_lib/wine" -type f -name '*.so' -exec strings {} + | grep -Fxq "$1"
+    find "$wine_lib/wine" -type f -name '*.so' -exec strings {} + | grep -Fx "$1" >/dev/null
 }
 
 contains_loader_name '@loader_path/../../libfreetype.6.dylib' || {
@@ -127,7 +127,7 @@ win32u_module="$(find "$wine_lib/wine" -type f -path '*-unix/win32u.so' -print -
     print -u2 'Wine win32u Unix module is missing.'
     exit 1
 }
-strings "$win32u_module" | grep -Fxq '@loader_path/../../../../Vulkan/libvulkan.1.dylib' || {
+strings "$win32u_module" | grep -Fx '@loader_path/../../../../Vulkan/libvulkan.1.dylib' >/dev/null || {
     print -u2 'Wine win32u does not resolve Vulkan from the bundled runtime path.'
     exit 1
 }

@@ -66,7 +66,7 @@ permissions:
 jobs:
   preflight:
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Confirm requested runner architecture
@@ -107,7 +107,9 @@ jobs:
           scripts/verify-wine-configure-loader-paths.sh \
             --source "$source_dir" \
             --workdir "$work_dir" \
-            --architecture "${{ inputs.architecture }}"
+            --architecture "${{ inputs.architecture }}" \
+            --compile-win32u \
+            --jobs 3
   build:
     if: ${{ inputs.build_candidate && inputs.source_artifact_run_id == '' }}
     needs: preflight
