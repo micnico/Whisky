@@ -52,7 +52,8 @@ wine_tag="$(plutil -extract wineTag raw "$smoke_dir/Libraries/WhiskyWineProvenan
 test "$(arch -x86_64 "$wine" --version)" = "$wine_tag"
 i686-w64-mingw32-gcc "$script_dir/fixtures/smoke-win32.c" -o "$smoke_dir/smoke-win32.exe"
 export WINEPREFIX="$smoke_dir/prefix"
-export DYLD_FALLBACK_LIBRARY_PATH="$smoke_dir/Libraries/Wine/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
+export VK_ICD_FILENAMES="$smoke_dir/Libraries/Vulkan/MoltenVK_icd.json"
+export DYLD_FALLBACK_LIBRARY_PATH="$smoke_dir/Libraries/Vulkan:$smoke_dir/Libraries/Wine/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
 arch -x86_64 "$wine" wineboot -u
 arch -x86_64 "$wine" "$smoke_dir/smoke-win32.exe"
 

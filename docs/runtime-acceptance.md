@@ -60,6 +60,10 @@ scripts/verify-x86-runtime-on-apple-silicon.sh \
 
 The script first performs the static archive checks, then runs `wineboot -u` and the repository's 32-bit sample in an isolated `WINEPREFIX`. It does not create, modify, or migrate a Whisky Bottle, and leaves its work directory for inspection.
 
+## Verify an existing build artifact without rebuilding Wine
+
+When a candidate's build job succeeded but its verification job failed, manually run `Build Graphics Runtime Candidate` with `build_candidate=false` and `source_artifact_run_id` set to the original Actions run ID. The workflow downloads that run's `wine-graphics-runtime-build-output` artifact, records the source run ID beside the verification output, and runs only the archive and executable checks. Set `source_artifact_signed=true` only when the original artifact used a valid Developer ID Application signature. This path never invokes `scripts/build-wine-runtime.sh`.
+
 Every distributed runtime needs a `Developer ID Application` signature and any required notarization. To enable that release gate, configure `WHISKY_RUNTIME_SIGNING_P12_BASE64` (a base64-encoded Developer ID `.p12`, including its private key) and `WHISKY_RUNTIME_SIGNING_P12_PASSWORD`. The workflow imports that identity into an ephemeral runner keychain, signs every Mach-O file before calculating runtime file hashes, verifies Developer ID authority, and runs the Wine/WoW64 smoke test.
 
 Without those secrets, the workflow produces an attestable **unsigned candidate** that must not be published. The native `arm64` candidate records an explicitly skipped executable smoke test because current system policy blocks its unsigned Wine helpers. The `x86_64` candidate is built and smoke-tested on an Intel runner, then requires a separate Rosetta regression on Apple silicon before it may be accepted. Notarize the final release archive or enclosing app as required by the intended distribution path.
