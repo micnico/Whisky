@@ -297,7 +297,10 @@ final class WhiskyWineReleaseTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: destinationDLL), Data("new".utf8))
     }
 
-    private func archiveLibraries(at source: URL, to archive: URL) throws {
+}
+
+private extension WhiskyWineReleaseTests {
+    func archiveLibraries(at source: URL, to archive: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         process.arguments = ["-C", source.path, "-zcf", archive.path, "Libraries"]
@@ -306,7 +309,7 @@ final class WhiskyWineReleaseTests: XCTestCase {
         XCTAssertEqual(process.terminationStatus, 0)
     }
 
-    private func createInstalledRuntime(at root: URL, id: String) throws -> URL {
+    func createInstalledRuntime(at root: URL, id: String) throws -> URL {
         let libraries = root.appending(path: "Runtimes/\(id)/Libraries")
         let wine = libraries.appending(path: "Wine/bin/wine64")
         try FileManager.default.createDirectory(at: wine.deletingLastPathComponent(), withIntermediateDirectories: true)
