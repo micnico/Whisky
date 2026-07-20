@@ -83,6 +83,7 @@ for file in \
     "$wine_lib/libfreetype.6.dylib" \
     "$wine_lib/libgnutls.30.dylib" \
     "$wine_lib/libSDL2-2.0.0.dylib" \
+    "$wine_lib/libSDL3.dylib" \
     "$dxvk_x64/d3d11.dll" \
     "$dxvk_x64/dxgi.dll" \
     "$dxvk_x32/d3d11.dll" \
@@ -102,13 +103,31 @@ plutil -lint "$libraries/WhiskyWineVersion.plist" "$libraries/WhiskyWineProvenan
     exit 1
 }
 file -L "$wine" | grep -q "$architecture"
-for library in "$wine_lib/libfreetype.6.dylib" "$wine_lib/libgnutls.30.dylib" "$wine_lib/libSDL2-2.0.0.dylib"; do
+for library in \
+    "$wine_lib/libfreetype.6.dylib" \
+    "$wine_lib/libgnutls.30.dylib" \
+    "$wine_lib/libSDL2-2.0.0.dylib" \
+    "$wine_lib/libSDL3.dylib"; do
     file "$library" | grep -q "$architecture"
 done
 file "$dxvk_x64/d3d11.dll" | grep -q PE32+
+file "$dxvk_x64/dxgi.dll" | grep -q PE32+
 file "$dxvk_x32/d3d11.dll" | grep -q 'PE32 executable'
+file "$dxvk_x32/dxgi.dll" | grep -q 'PE32 executable'
 file "$vulkan/libMoltenVK.dylib" | grep -q "$architecture"
+file "$vulkan/libvulkan.1.dylib" | grep -q "$architecture"
 codesign -v "$vulkan/libMoltenVK.dylib" "$vulkan/libvulkan.1.dylib"
+
+icd_library_path="$(plutil -extract ICD.library_path raw "$vulkan/MoltenVK_icd.json")"
+[[ -n "$icd_library_path" && "$icd_library_path" != /* ]] || {
+    print -u2 'MoltenVK ICD must use a relative library_path.'
+    exit 1
+}
+icd_library="$vulkan/$icd_library_path"
+[[ "${icd_library:A}" == "${vulkan:A}/libMoltenVK.dylib" ]] || {
+    print -u2 "MoltenVK ICD resolves outside the bundled driver: $icd_library_path"
+    exit 1
+}
 
 contains_loader_name() {
     find "$wine_lib/wine" -type f -name '*.so' -exec strings {} + | grep -Fx "$1" >/dev/null
@@ -144,10 +163,10 @@ done < <(find "$libraries" -type f -print0)
 
 while IFS= read -r -d '' library; do
     otool -L "$library" | grep -Eq '/(usr/local|opt/homebrew)/' && {
-        print -u2 "Bundled Wine library still references the build host: $library"
+        print -u2 "Bundled runtime library still references the build host: $library"
         exit 1
     }
-done < <(find "$wine_lib" -type f -name '*.dylib' -print0)
+done < <(find "$wine_lib" "$vulkan" -type f -name '*.dylib' -print0)
 
 runtime_root="${libraries:A}"
 while IFS= read -r -d '' link; do

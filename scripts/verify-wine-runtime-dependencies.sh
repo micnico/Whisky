@@ -100,7 +100,8 @@ visit_library() {
 for spec in \
     "freetype libfreetype.6.dylib" \
     "gnutls libgnutls.30.dylib" \
-    "sdl2 libSDL2-2.0.0.dylib"; do
+    "sdl2 libSDL2-2.0.0.dylib" \
+    "sdl3 libSDL3.dylib"; do
     library="$(resolve_library ${(z)spec})"
     print "Checking $library"
     visit_library "$library"

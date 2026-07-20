@@ -127,6 +127,7 @@ lld_prefix="$(brew --prefix lld)"
 freetype_prefix="$(brew --prefix freetype)"
 gnutls_prefix="$(brew --prefix gnutls)"
 sdl2_prefix="$(brew --prefix sdl2)"
+sdl3_prefix="$(brew --prefix sdl3)"
 sdl2_library="$sdl2_prefix/lib/libSDL2-2.0.0.dylib"
 if [[ ! -f "$sdl2_library" ]]; then
     sdl2_installed=("${(z)$(brew list --versions sdl2)}")
@@ -294,6 +295,9 @@ bundle_homebrew_library() {
 bundle_homebrew_library "$freetype_prefix/lib/libfreetype.6.dylib"
 bundle_homebrew_library "$gnutls_prefix/lib/libgnutls.30.dylib"
 bundle_homebrew_library "$sdl2_library"
+# Homebrew's current sdl2 formula is sdl2-compat, which loads SDL3 with
+# dlopen instead of a Mach-O load command. Bundle that runtime-only dependency.
+bundle_homebrew_library "$sdl3_prefix/lib/libSDL3.dylib"
 
 while IFS= read -r -d '' library; do
     install_name_tool -id "@loader_path/${library:t}" "$library"
@@ -359,6 +363,8 @@ fi
 /usr/libexec/PlistBuddy -c 'Add :gnutlsLicense string LGPL-2.1-or-later' "$provenance_plist"
 /usr/libexec/PlistBuddy -c "Add :sdl2Version string $(brew info --json=v2 sdl2 | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
 /usr/libexec/PlistBuddy -c 'Add :sdl2License string Zlib' "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :sdl3Version string $(brew info --json=v2 sdl3 | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
+/usr/libexec/PlistBuddy -c 'Add :sdl3License string Zlib' "$provenance_plist"
 if $graphics_runtime; then
     /usr/libexec/PlistBuddy -c "Add :dxvkSource string $DXVK_SOURCE" "$provenance_plist"
     /usr/libexec/PlistBuddy -c "Add :dxvkTag string $dxvk_tag" "$provenance_plist"
