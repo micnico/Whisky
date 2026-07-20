@@ -81,9 +81,12 @@ strings "$sdl2" | grep -F 'libSDL3.dylib' >/dev/null || {
 
 typeset -A bundled_libraries
 bundle_homebrew_library() {
-    local source="${1:A}" destination dependency
+    local requested="$1" source="${1:A}" destination dependency
     [[ "$source" == "$brew_prefix/"* ]] || return 0
-    destination="$wine_lib/${source:t}"
+    # Preserve the exact install name requested by the dependent library.
+    # Homebrew compatibility names such as libxcb.1.dylib may resolve to a
+    # more specific file such as libxcb.1.1.0.dylib.
+    destination="$wine_lib/${requested:t}"
     bundled_libraries[$destination]=1
     [[ -f "$destination" ]] && return 0
     cp -L "$source" "$destination"
