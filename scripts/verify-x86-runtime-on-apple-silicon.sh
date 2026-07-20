@@ -3,6 +3,7 @@
 
 # Run isolated x86_64 Wine runtime smoke tests through Rosetta without touching a Bottle.
 set -euo pipefail
+export LC_ALL=C LANG=C
 
 readonly SCRIPT_NAME="${0:t}"
 
@@ -35,11 +36,11 @@ if [[ "$(uname -m)" != "arm64" || -z "$archive" || -z "$work_dir" || ! -f "$arch
     exit 2
 fi
 
-commands=(arch perl plutil tar)
-[[ "$phase" != "graphics" ]] || commands+=(brew clang xcrun x86_64-w64-mingw32-gcc)
-[[ "$phase" != "wow64" ]] || commands+=(i686-w64-mingw32-gcc)
-[[ "$phase" != "all" ]] || commands+=(brew clang i686-w64-mingw32-gcc xcrun x86_64-w64-mingw32-gcc)
-for command in $commands; do
+required_commands=(arch perl plutil tar)
+[[ "$phase" != "graphics" ]] || required_commands+=(brew clang xcrun x86_64-w64-mingw32-gcc)
+[[ "$phase" != "wow64" ]] || required_commands+=(i686-w64-mingw32-gcc)
+[[ "$phase" != "all" ]] || required_commands+=(brew clang i686-w64-mingw32-gcc xcrun x86_64-w64-mingw32-gcc)
+for command in $required_commands; do
     command -v "$command" >/dev/null || {
         print -u2 "Missing required command: $command"
         exit 1

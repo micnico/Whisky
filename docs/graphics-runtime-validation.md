@@ -37,12 +37,14 @@ The graphics smoke is not satisfied by process exit alone. Its log must show DXV
 
 ## Current evidence
 
-On 2026-07-20, the pinned DXVK-macOS source plus both patches compiled locally for x64 and x32 with current Homebrew MinGW 14. In a new temporary prefix on an Apple M4, the repository's `D3D11CreateDevice` fixture completed successfully through:
+On 2026-07-20, run [`29753990552`](https://github.com/micnico/Whisky/actions/runs/29753990552) built and verified the pinned DXVK-macOS x64/x32 component, skipped the full Wine build, repackaged source artifact run `29747213847`, verified the complete archive and provenance, and passed Wineboot, WoW64, and attestation. The runtime archive SHA-256 is `ccec9f0717135b8405674b0a8e5408d3f9b2b8283f48d0c0c07319045e3d9c9e`; the GitHub candidate artifact digest is `sha256:04ca01fbbb62889a34651a562da359b6b93275186c7b70c2721475f0f7401545`.
+
+The hosted Apple-silicon runner exposed no Metal device, so its graphics job correctly recorded `SKIPPED`. The exact candidate was then downloaded and tested with the repository verifier in three new temporary prefixes on an Apple M4. The `D3D11CreateDevice` fixture completed successfully through:
 
 ```text
 D3D11 -> DXVK-macOS 1.10.3 -> WineVulkan -> bundled Vulkan Loader -> MoltenVK 1.4.1 -> Apple M4
 ```
 
-The log recorded the portability extension, Apple M4 device selection, D3D feature level 11_0, Vulkan device creation, and clean device destruction. The test used an extracted temporary runtime and did not read or modify a Whisky Bottle.
+The log recorded DXVK-macOS 1.10.3, the portability extension, Apple M4 device selection, D3D feature level 11_0, Vulkan device creation, the bundled `libMoltenVK.dylib`, and clean device destruction. Static verification rejected host Homebrew references and unresolved loader paths. Wineboot emitted neither the FreeType nor GnuTLS missing-library diagnostics. The test did not read or modify a Whisky Bottle.
 
-This is strong component and local hardware evidence, but it is not yet a releasable runtime. The repackage, complete static archive verification, Wine/WoW64 smoke jobs, Apple-silicon graphics job, and attestation must all pass on one provenance-linked candidate. No new full Wine build is allowed before those no-rebuild gates have been attempted and their evidence reviewed.
+The no-rebuild gates are complete for this provenance-linked candidate, and [attestation 36183615](https://github.com/micnico/Whisky/attestations/36183615) covers its three published subjects. A new full Wine build is not required for the runtime-only dependency and DXVK repair. The candidate remains unpublished until application integration and the broader compatibility matrix are completed.

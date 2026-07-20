@@ -1,8 +1,24 @@
 # Wine 11 x86_64 candidate verification record
 
-Date: 2026-07-19
+Date: 2026-07-20
 
-Status: historical rejected candidate. It is not evidence that the current self-contained graphics gate passed.
+Status: current unpublished engineering candidate passed the self-contained runtime, Wineboot, WoW64, local Apple-silicon graphics, and provenance gates.
+
+## Current accepted engineering candidate
+
+GitHub Actions run [`29753990552`](https://github.com/micnico/Whisky/actions/runs/29753990552) at commit `6dc49264` reused Wine source artifact run `29747213847`; `build_candidate=false` kept the Wine `build` job explicitly skipped. DXVK-macOS x64/x32 preflight, repackage, archive verification, Wineboot, WoW64, and attestation all succeeded.
+
+- Runtime archive SHA-256: `ccec9f0717135b8405674b0a8e5408d3f9b2b8283f48d0c0c07319045e3d9c9e`.
+- GitHub artifact digest: `sha256:04ca01fbbb62889a34651a562da359b6b93275186c7b70c2721475f0f7401545`.
+- GitHub build provenance: [attestation 36183615](https://github.com/micnico/Whisky/attestations/36183615), signed through Sigstore for three subjects.
+- Static verification rejected build-host Homebrew paths and unresolved loader paths, and verified bundled FreeType, GnuTLS, Vulkan Loader, MoltenVK, DXVK patches, file hashes, signatures, and provenance.
+- Hosted graphics execution was explicitly `SKIPPED` because the GitHub ARM64 runner exposed no Metal device; it was not counted as graphics success.
+- The exact candidate was then downloaded and tested on an Apple M4 through Rosetta in three new `/private/tmp` prefixes. Wineboot, the 32-bit WoW64 fixture, native Vulkan, and the D3D11 fixture passed. Logs recorded DXVK-macOS 1.10.3, `VK_KHR_portability_enumeration`, Apple M4, D3D feature level 11_0, and the bundled `libMoltenVK.dylib`.
+- Wineboot logs contained neither the FreeType nor GnuTLS missing-library diagnostics and did not time out. No existing Whisky Bottle was read or changed.
+
+This candidate contains no Apple Game Porting Toolkit or D3DMetal binary. It is accepted as the Wine 11 x86_64 runtime engineering input, but remains unpublished until application integration and the broader compatibility matrix are completed.
+
+## Historical rejected candidate
 
 This record covers the Wine 11 x86_64 graphics candidate built by GitHub Actions run `29653014405` and re-verified without rebuilding by run `29673871654` at commit `44d19063`.
 
