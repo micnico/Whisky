@@ -322,7 +322,7 @@ jobs:
 
   smoke:
     name: smoke-${{ matrix.phase }}
-    if: ${{ needs.verify.result == 'success' && (needs.verify.outputs.runtime_signed == 'true' || inputs.architecture == 'x86_64') }}
+    if: ${{ always() && needs.verify.result == 'success' && (needs.verify.outputs.runtime_signed == 'true' || inputs.architecture == 'x86_64') }}
     needs: verify
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 15
@@ -432,7 +432,7 @@ jobs:
           retention-days: 14
 
   attest:
-    if: ${{ always() && needs.verify.result == 'success' && (needs.smoke.result == 'success' || needs.smoke.result == 'skipped') }}
+    if: ${{ always() && needs.verify.result == 'success' && (needs.smoke.result == 'success' || (needs.smoke.result == 'skipped' && inputs.architecture == 'arm64' && needs.verify.outputs.runtime_signed != 'true')) }}
     needs: [verify, smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 10
