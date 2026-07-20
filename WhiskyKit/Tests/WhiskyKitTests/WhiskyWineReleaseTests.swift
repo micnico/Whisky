@@ -235,6 +235,9 @@ final class WhiskyWineReleaseTests: XCTestCase {
             at: root.appending(path: "game.exe"), bottle: bottle, args: "", environment: [:]
         )
         XCTAssertTrue(command.contains(
+            "VK_DRIVER_FILES=\"\(vulkanFolder.appending(path: "MoltenVK_icd.json").path)\""
+        ))
+        XCTAssertTrue(command.contains(
             "VK_ICD_FILENAMES=\"\(vulkanFolder.appending(path: "MoltenVK_icd.json").path)\""
         ))
         XCTAssertTrue(command.contains(

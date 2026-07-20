@@ -294,6 +294,9 @@ bundle_homebrew_library() {
 
 bundle_homebrew_library "$freetype_prefix/lib/libfreetype.6.dylib"
 bundle_homebrew_library "$gnutls_prefix/lib/libgnutls.30.dylib"
+bundle_homebrew_library "$(brew --prefix libusb)/lib/libusb-1.0.0.dylib"
+bundle_homebrew_library "$(brew --prefix libx11)/lib/libX11.6.dylib"
+bundle_homebrew_library "$(brew --prefix libxext)/lib/libXext.6.dylib"
 bundle_homebrew_library "$sdl2_library"
 # Homebrew's current sdl2 formula is sdl2-compat, which loads SDL3 with
 # dlopen instead of a Mach-O load command. Bundle that runtime-only dependency.
@@ -310,6 +313,20 @@ while IFS= read -r -d '' library; do
     done < <(otool -L "$library" | tail -n +2)
 done < <(find "$wine_library_dir" -type f -name '*.dylib' -print0)
 true
+
+while IFS= read -r -d '' module; do
+    while IFS= read -r dependency; do
+        dependency="${dependency#"${dependency%%[![:space:]]*}"}"
+        dependency="${dependency%% \(*}"
+        if [[ "$dependency" == "$brew_prefix/"* ]]; then
+            [[ -f "$wine_library_dir/${dependency:t}" ]] || {
+                print -u2 "Missing bundled dependency for $module: $dependency"
+                exit 1
+            }
+            install_name_tool -change "$dependency" "@loader_path/../../${dependency:t}" "$module"
+        fi
+    done < <(otool -L "$module" | tail -n +2)
+done < <(find "$wine_library_dir/wine" -type f -name '*.so' -print0)
 
 if $graphics_runtime; then
     mkdir -p "$runtime_dir/Libraries/DXVK/x64" "$runtime_dir/Libraries/DXVK/x32" "$runtime_dir/Libraries/Vulkan"
@@ -361,6 +378,12 @@ fi
 /usr/libexec/PlistBuddy -c 'Add :freetypeLicense string FTL' "$provenance_plist"
 /usr/libexec/PlistBuddy -c "Add :gnutlsVersion string $(brew info --json=v2 gnutls | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
 /usr/libexec/PlistBuddy -c 'Add :gnutlsLicense string LGPL-2.1-or-later' "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :libusbVersion string $(brew info --json=v2 libusb | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
+/usr/libexec/PlistBuddy -c 'Add :libusbLicense string LGPL-2.1-or-later' "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :libX11Version string $(brew info --json=v2 libx11 | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
+/usr/libexec/PlistBuddy -c 'Add :libX11License string MIT' "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :libXextVersion string $(brew info --json=v2 libxext | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
+/usr/libexec/PlistBuddy -c 'Add :libXextLicense string MIT' "$provenance_plist"
 /usr/libexec/PlistBuddy -c "Add :sdl2Version string $(brew info --json=v2 sdl2 | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"
 /usr/libexec/PlistBuddy -c 'Add :sdl2License string Zlib' "$provenance_plist"
 /usr/libexec/PlistBuddy -c "Add :sdl3Version string $(brew info --json=v2 sdl3 | plutil -extract formulae.0.versions.stable raw -)" "$provenance_plist"

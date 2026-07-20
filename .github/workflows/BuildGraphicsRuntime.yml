@@ -109,7 +109,7 @@ jobs:
       - name: Install configure preflight dependencies
         if: ${{ inputs.source_artifact_run_id == '' }}
         run: >-
-          brew install bison llvm lld freetype gnutls sdl2 sdl3 vulkan-headers vulkan-loader
+          brew install bison llvm lld freetype gnutls libusb libx11 libxext sdl2 sdl3 vulkan-headers vulkan-loader
       - name: Verify bundleable Wine runtime dependencies
         if: ${{ inputs.source_artifact_run_id == '' }}
         run: scripts/verify-wine-runtime-dependencies.sh --architecture "${{ inputs.architecture }}"
@@ -166,7 +166,7 @@ jobs:
       - name: Install build dependencies
         run: >-
           brew install bison llvm lld meson ninja mingw-w64 cmake glslang
-          vulkan-headers vulkan-loader freetype gnutls sdl2 sdl3
+          vulkan-headers vulkan-loader freetype gnutls libusb libx11 libxext sdl2 sdl3
       - name: Build candidate
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
@@ -217,8 +217,8 @@ jobs:
           path: ${{ runner.temp }}/source-runtime-build-output
           github-token: ${{ github.token }}
           run-id: ${{ inputs.source_artifact_run_id }}
-      - name: Install runtime-only dependency
-        run: brew install sdl3
+      - name: Install runtime-only dependencies
+        run: brew install libusb libx11 libxext sdl3
       - name: Repackage candidate without rebuilding Wine
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
@@ -409,7 +409,8 @@ jobs:
             "$vulkan_dir/libvulkan.1.dylib" \
             -Wl,-rpath,"$vulkan_dir" \
             -o "$SMOKE_DIR/smoke-vulkan"
-          VK_LOADER_DEBUG=error,warn,driver "$SMOKE_DIR/smoke-vulkan" \
+          MVK_CONFIG_DEBUG=1 MVK_CONFIG_LOG_LEVEL=4 MVK_CONFIG_TRACE_VULKAN_CALLS=1 \
+            VK_LOADER_DEBUG=error,warn,driver "$SMOKE_DIR/smoke-vulkan" \
             2>&1 | tee "$RUNNER_TEMP/vulkan-smoke.log"
       - name: Smoke test DXVK D3D11
         if: ${{ matrix.phase == 'graphics' && steps.metal.outputs.available == 'true' }}
@@ -424,11 +425,22 @@ jobs:
             VK_LOADER_DEBUG=error,warn,driver WINEDLLOVERRIDES="d3d11,dxgi=n,b" \
               "$WINE" "$SMOKE_DIR/smoke-d3d11.exe"
           } 2>&1 | tee "$RUNNER_TEMP/d3d11-smoke.log"
+      - name: Collect graphics crash reports
+        if: ${{ always() && matrix.phase == 'graphics' }}
+        run: |
+          for directory in "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports; do
+            [[ -d "$directory" ]] || continue
+            find "$directory" -type f \( -name 'smoke-vulkan*.ips' -o -name 'smoke-vulkan*.crash' \) \
+              -exec cp {} "$RUNNER_TEMP/" \; 2>/dev/null || true
+          done
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: runtime-smoke-${{ matrix.phase }}
-          path: ${{ runner.temp }}/*-smoke.log
+          path: |
+            ${{ runner.temp }}/*-smoke.log
+            ${{ runner.temp }}/smoke-vulkan*.ips
+            ${{ runner.temp }}/smoke-vulkan*.crash
           retention-days: 14
 
   attest:

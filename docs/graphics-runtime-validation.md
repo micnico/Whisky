@@ -11,7 +11,7 @@ This is an unpublished, locally built candidate. It is not a public runtime rele
 | MoltenVK | https://github.com/KhronosGroup/MoltenVK | `v1.4.1` / `db445ff2042d9ce348c439ad8451112f354b8d2a` | Apache-2.0 |
 | Vulkan Loader | https://github.com/KhronosGroup/Vulkan-Loader | Homebrew `1.4.350.1` | Apache-2.0 |
 
-The package layout is `Libraries/Wine`, `Libraries/DXVK/{x64,x32}`, and `Libraries/Vulkan`. `MoltenVK_icd.json` selects the bundled `libMoltenVK.dylib`; Bottle DXVK mode sets that JSON in `VK_ICD_FILENAMES` and prepends the Vulkan folder to `DYLD_FALLBACK_LIBRARY_PATH`.
+The package layout is `Libraries/Wine`, `Libraries/DXVK/{x64,x32}`, and `Libraries/Vulkan`. `MoltenVK_icd.json` selects the bundled `libMoltenVK.dylib`; Bottle DXVK mode sets that JSON in `VK_DRIVER_FILES` and the deprecated `VK_ICD_FILENAMES` compatibility variable, then prepends only runtime-internal Vulkan and Wine library folders to `DYLD_FALLBACK_LIBRARY_PATH`.
 
 ## Candidate artifact
 

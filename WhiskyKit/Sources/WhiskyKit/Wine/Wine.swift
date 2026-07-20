@@ -247,6 +247,7 @@ public class Wine {
         let icd = vulkanFolder.appending(path: "MoltenVK_icd.json")
         guard FileManager.default.fileExists(atPath: icd.path) else { return }
 
+        wineEnv["VK_DRIVER_FILES"] = icd.path
         wineEnv["VK_ICD_FILENAMES"] = icd.path
         if let fallback = wineEnv["DYLD_FALLBACK_LIBRARY_PATH"], !fallback.isEmpty {
             wineEnv["DYLD_FALLBACK_LIBRARY_PATH"] = "\(vulkanFolder.path):\(fallback)"

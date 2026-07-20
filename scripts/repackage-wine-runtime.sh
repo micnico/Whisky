@@ -33,6 +33,16 @@ if [[ "$architecture" != "arm64" && "$architecture" != "x86_64" ]]; then
     print -u2 -- "--architecture must be arm64 or x86_64."
     exit 2
 fi
+if [[ "$(uname -m)" != "$architecture" ]]; then
+    print -u2 -- "Repackage on a host matching --architecture."
+    exit 1
+fi
+for command in brew codesign file find install_name_tool openssl otool plutil strings tar; do
+    command -v "$command" >/dev/null || {
+        print -u2 "Missing required command: $command"
+        exit 1
+    }
+done
 
 expected="$(awk '{print $1}' "$archive.sha256")"
 actual="$(openssl dgst -sha256 "$archive" | awk '{print $NF}')"
@@ -56,7 +66,7 @@ wine_lib="$libraries/Wine/lib"
 provenance="$libraries/WhiskyWineProvenance.plist"
 sdl2="$wine_lib/libSDL2-2.0.0.dylib"
 sdl3_source="$(brew --prefix sdl3)/lib/libSDL3.dylib"
-sdl3="$wine_lib/libSDL3.dylib"
+brew_prefix="$(brew --prefix)"
 
 for file in "$provenance" "$sdl2" "$sdl3_source"; do
     [[ -f "$file" ]] || {
@@ -69,20 +79,77 @@ strings "$sdl2" | grep -F 'libSDL3.dylib' >/dev/null || {
     exit 1
 }
 
-cp -L "$sdl3_source" "$sdl3"
-install_name_tool -id '@loader_path/libSDL3.dylib' "$sdl3"
-otool -L "$sdl3" | grep -Eq '/(usr/local|opt/homebrew)/' && {
-    print -u2 'SDL3 still references the Homebrew installation.'
-    exit 1
+typeset -A bundled_libraries
+bundle_homebrew_library() {
+    local source="${1:A}" destination dependency
+    [[ "$source" == "$brew_prefix/"* ]] || return 0
+    destination="$wine_lib/${source:t}"
+    bundled_libraries[$destination]=1
+    [[ -f "$destination" ]] && return 0
+    cp -L "$source" "$destination"
+    while IFS= read -r dependency; do
+        dependency="${dependency#"${dependency%%[![:space:]]*}"}"
+        dependency="${dependency%% \(*}"
+        [[ "$dependency" != "$brew_prefix/"* ]] || bundle_homebrew_library "$dependency"
+    done < <(otool -L "$source" | tail -n +2)
 }
-file "$sdl3" | grep -q "$architecture"
-codesign --force --sign - "$sdl3"
+
+bundle_homebrew_library "$sdl3_source"
+bundle_homebrew_library "$(brew --prefix libusb)/lib/libusb-1.0.0.dylib"
+bundle_homebrew_library "$(brew --prefix libx11)/lib/libX11.6.dylib"
+bundle_homebrew_library "$(brew --prefix libxext)/lib/libXext.6.dylib"
+
+for library in ${(k)bundled_libraries}; do
+    file "$library" | grep -q "$architecture"
+    install_name_tool -id "@loader_path/${library:t}" "$library"
+    while IFS= read -r dependency; do
+        dependency="${dependency#"${dependency%%[![:space:]]*}"}"
+        dependency="${dependency%% \(*}"
+        if [[ "$dependency" == "$brew_prefix/"* ]]; then
+            [[ -f "$wine_lib/${dependency:t}" ]] || {
+                print -u2 "Missing bundled dependency for $library: $dependency"
+                exit 1
+            }
+            install_name_tool -change "$dependency" "@loader_path/${dependency:t}" "$library"
+        fi
+    done < <(otool -L "$library" | tail -n +2)
+    codesign --force --sign - "$library"
+done
+
+while IFS= read -r -d '' module; do
+    modified=false
+    while IFS= read -r dependency; do
+        dependency="${dependency#"${dependency%%[![:space:]]*}"}"
+        dependency="${dependency%% \(*}"
+        if [[ "$dependency" == "$brew_prefix/"* ]]; then
+            [[ -f "$wine_lib/${dependency:t}" ]] || {
+                print -u2 "Missing bundled dependency for $module: $dependency"
+                exit 1
+            }
+            install_name_tool -change "$dependency" "@loader_path/../../${dependency:t}" "$module"
+            modified=true
+        fi
+    done < <(otool -L "$module" | tail -n +2)
+    $modified && codesign --force --sign - "$module"
+done < <(find "$wine_lib/wine" -type f -name '*.so' -print0)
 
 /usr/libexec/PlistBuddy -c 'Delete :sdl3Version' "$provenance" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c 'Delete :sdl3License' "$provenance" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Delete :libusbVersion' "$provenance" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Delete :libusbLicense' "$provenance" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Delete :libX11Version' "$provenance" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Delete :libX11License' "$provenance" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Delete :libXextVersion' "$provenance" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Delete :libXextLicense' "$provenance" 2>/dev/null || true
 /usr/libexec/PlistBuddy \
     -c "Add :sdl3Version string $(brew info --json=v2 sdl3 | plutil -extract formulae.0.versions.stable raw -)" \
     -c 'Add :sdl3License string Zlib' \
+    -c "Add :libusbVersion string $(brew info --json=v2 libusb | plutil -extract formulae.0.versions.stable raw -)" \
+    -c 'Add :libusbLicense string LGPL-2.1-or-later' \
+    -c "Add :libX11Version string $(brew info --json=v2 libx11 | plutil -extract formulae.0.versions.stable raw -)" \
+    -c 'Add :libX11License string MIT' \
+    -c "Add :libXextVersion string $(brew info --json=v2 libxext | plutil -extract formulae.0.versions.stable raw -)" \
+    -c 'Add :libXextLicense string MIT' \
     "$provenance"
 
 (cd "$work_dir" && find Libraries -type f ! -name WhiskyWineBinaries.sha256 -print0 | \

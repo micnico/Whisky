@@ -100,6 +100,9 @@ visit_library() {
 for spec in \
     "freetype libfreetype.6.dylib" \
     "gnutls libgnutls.30.dylib" \
+    "libusb libusb-1.0.0.dylib" \
+    "libx11 libX11.6.dylib" \
+    "libxext libXext.6.dylib" \
     "sdl2 libSDL2-2.0.0.dylib" \
     "sdl3 libSDL3.dylib"; do
     library="$(resolve_library ${(z)spec})"

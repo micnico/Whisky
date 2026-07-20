@@ -82,6 +82,9 @@ for file in \
     "$wine" \
     "$wine_lib/libfreetype.6.dylib" \
     "$wine_lib/libgnutls.30.dylib" \
+    "$wine_lib/libusb-1.0.0.dylib" \
+    "$wine_lib/libX11.6.dylib" \
+    "$wine_lib/libXext.6.dylib" \
     "$wine_lib/libSDL2-2.0.0.dylib" \
     "$wine_lib/libSDL3.dylib" \
     "$dxvk_x64/d3d11.dll" \
@@ -106,6 +109,9 @@ file -L "$wine" | grep -q "$architecture"
 for library in \
     "$wine_lib/libfreetype.6.dylib" \
     "$wine_lib/libgnutls.30.dylib" \
+    "$wine_lib/libusb-1.0.0.dylib" \
+    "$wine_lib/libX11.6.dylib" \
+    "$wine_lib/libXext.6.dylib" \
     "$wine_lib/libSDL2-2.0.0.dylib" \
     "$wine_lib/libSDL3.dylib"; do
     file "$library" | grep -q "$architecture"
@@ -153,6 +159,20 @@ strings "$win32u_module" | grep -Fx '@loader_path/../../../../Vulkan/libvulkan.1
 while IFS= read -r -d '' native_binary; do
     /usr/bin/file -b "$native_binary" | grep -q 'Mach-O' || continue
     codesign -v "$native_binary"
+    otool -L "$native_binary" | grep -Eq '/(usr/local|opt/homebrew)/' && {
+        print -u2 "Bundled runtime Mach-O still references the build host: $native_binary"
+        exit 1
+    }
+    while IFS= read -r dependency; do
+        dependency="${dependency#"${dependency%%[![:space:]]*}"}"
+        dependency="${dependency%% \(*}"
+        if [[ "$dependency" == '@loader_path/'* ]]; then
+            [[ -e "${native_binary:h}/${dependency#@loader_path/}" ]] || {
+                print -u2 "Bundled runtime Mach-O has an unresolved loader path: $native_binary -> $dependency"
+                exit 1
+            }
+        fi
+    done < <(otool -L "$native_binary" | tail -n +2)
     if $require_developer_id; then
         codesign -dvv "$native_binary" 2>&1 | grep -q '^Authority=Developer ID Application:' || {
             print -u2 "Mach-O is not signed by Developer ID: $native_binary"
@@ -160,13 +180,6 @@ while IFS= read -r -d '' native_binary; do
         }
     fi
 done < <(find "$libraries" -type f -print0)
-
-while IFS= read -r -d '' library; do
-    otool -L "$library" | grep -Eq '/(usr/local|opt/homebrew)/' && {
-        print -u2 "Bundled runtime library still references the build host: $library"
-        exit 1
-    }
-done < <(find "$wine_lib" "$vulkan" -type f -name '*.dylib' -print0)
 
 runtime_root="${libraries:A}"
 while IFS= read -r -d '' link; do
