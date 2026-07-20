@@ -5,13 +5,14 @@
 set -euo pipefail
 
 usage() {
-    print "Usage: ${0:t} --archive PATH --workdir DIR --output DIR --architecture ARCH"
+    print "Usage: ${0:t} --archive PATH --workdir DIR --output DIR --architecture ARCH [--dxvk-output DIR]"
 }
 
 archive=""
 work_dir=""
 output_dir=""
 architecture=""
+dxvk_output=""
 
 while (( $# )); do
     case "$1" in
@@ -19,6 +20,7 @@ while (( $# )); do
         --workdir) work_dir="$2"; shift 2 ;;
         --output) output_dir="$2"; shift 2 ;;
         --architecture) architecture="$2"; shift 2 ;;
+        --dxvk-output) dxvk_output="$2"; shift 2 ;;
         --help) usage; exit 0 ;;
         *) print -u2 "Unknown argument: $1"; usage; exit 2 ;;
     esac
@@ -32,6 +34,13 @@ fi
 if [[ "$architecture" != "arm64" && "$architecture" != "x86_64" ]]; then
     print -u2 -- "--architecture must be arm64 or x86_64."
     exit 2
+fi
+if [[ -n "$dxvk_output" ]]; then
+    [[ -d "$dxvk_output" ]] || {
+        print -u2 -- "--dxvk-output must be an existing component artifact."
+        exit 2
+    }
+    dxvk_output="${dxvk_output:A}"
 fi
 if [[ "$(uname -m)" != "$architecture" ]]; then
     print -u2 -- "Repackage on a host matching --architecture."
@@ -78,6 +87,14 @@ strings "$sdl2" | grep -F 'libSDL3.dylib' >/dev/null || {
     print -u2 'Bundled SDL2 does not use the SDL3 compatibility runtime.'
     exit 1
 }
+
+if [[ -n "$dxvk_output" ]]; then
+    "${0:A:h}/verify-dxvk-macos-output.sh" --output "$dxvk_output"
+    for dxvk_architecture in x64 x32; do
+        rm -f "$libraries/DXVK/$dxvk_architecture/"*.dll
+        cp "$dxvk_output/$dxvk_architecture/bin/"*.dll "$libraries/DXVK/$dxvk_architecture/"
+    done
+fi
 
 typeset -A bundled_libraries
 bundle_homebrew_library() {
@@ -144,6 +161,20 @@ done < <(find "$wine_lib/wine" -type f -name '*.so' -print0)
 /usr/libexec/PlistBuddy -c 'Delete :libX11License' "$provenance" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c 'Delete :libXextVersion' "$provenance" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c 'Delete :libXextLicense' "$provenance" 2>/dev/null || true
+if [[ -n "$dxvk_output" ]]; then
+    for key in dxvkSource dxvkTag dxvkRevision dxvkLicense \
+        dxvkPortabilityPatchSHA256 dxvkMingw14PatchSHA256; do
+        /usr/libexec/PlistBuddy -c "Delete :$key" "$provenance" 2>/dev/null || true
+    done
+    /usr/libexec/PlistBuddy \
+        -c 'Add :dxvkSource string https://github.com/Gcenx/DXVK-macOS.git' \
+        -c "Add :dxvkTag string $(<"$dxvk_output/source-tag.txt")" \
+        -c "Add :dxvkRevision string $(<"$dxvk_output/source-revision.txt")" \
+        -c 'Add :dxvkLicense string zlib' \
+        -c "Add :dxvkPortabilityPatchSHA256 string $(<"$dxvk_output/portability-patch.sha256")" \
+        -c "Add :dxvkMingw14PatchSHA256 string $(<"$dxvk_output/mingw14-patch.sha256")" \
+        "$provenance"
+fi
 /usr/libexec/PlistBuddy \
     -c "Add :sdl3Version string $(brew info --json=v2 sdl3 | plutil -extract formulae.0.versions.stable raw -)" \
     -c 'Add :sdl3License string Zlib' \

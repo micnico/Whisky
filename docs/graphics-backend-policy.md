@@ -5,7 +5,7 @@ The default runtime is plain Wine. A graphics backend is opt-in until its exact 
 | Backend | APIs | Distribution policy | Status |
 | --- | --- | --- | --- |
 | WineD3D | Wine-provided Direct3D | Included with Wine | Default fallback |
-| DXVK + MoltenVK | D3D8-11 via Vulkan/Metal | May be built from source after recording DXVK's zlib and MoltenVK's Apache-2.0 notices | Candidate |
+| DXVK-macOS 1.10.3 + MoltenVK | D3D9-11 via Vulkan/Metal | Build from pinned source and patches; record DXVK's zlib and MoltenVK's Apache-2.0 notices | Candidate |
 | DXMT | D3D10-11 via Metal | May be built from source after LGPL-2.1 obligations and Wine 11 compatibility are verified | Candidate |
 | Apple D3DMetal / GPTK | Apple evaluation environment | Never bundle, host, or redistribute | User-installed only; no auto-integration yet |
 
@@ -21,7 +21,7 @@ For every non-WineD3D backend, publish alongside the runtime archive:
 
 1. Source URLs, immutable revisions, license texts, and SHA-256 hashes for every shipped binary.
 2. Exact DLL overrides and host library search paths used by the backend.
-3. One D3D11 and one D3D12 test result, plus a 32-bit executable check in a 64-bit Bottle.
+3. An API-appropriate graphics test result (D3D11 for DXVK/DXMT; D3D12 only for a backend that claims it), plus a 32-bit executable check in a 64-bit Bottle.
 4. A rollback result: switch the Bottle to `legacy`, start once, and confirm its prefix still opens.
 
 Do not present a backend as generally compatible from a single game result. Failed workloads remain recorded compatibility data and keep the backend opt-in.

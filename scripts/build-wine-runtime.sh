@@ -1,11 +1,11 @@
 #!/bin/zsh
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Produce a Whisky runtime from official Wine, DXVK, and MoltenVK tags.
+# Produce a Whisky runtime from official Wine, DXVK-macOS, and MoltenVK tags.
 set -euo pipefail
 
 readonly WINE_SOURCE=https://gitlab.winehq.org/wine/wine.git
-readonly DXVK_SOURCE=https://github.com/doitsujin/dxvk.git
+readonly DXVK_SOURCE=https://github.com/Gcenx/DXVK-macOS.git
 readonly MOLTENVK_SOURCE=https://github.com/KhronosGroup/MoltenVK.git
 readonly SCRIPT_NAME="${0:t}"
 
@@ -22,6 +22,7 @@ usage() {
     print "  --dxvk-revision SHA Verify the checked-out DXVK revision"
     print "  --moltenvk-tag TAG Build MoltenVK from source (requires --dxvk-tag)"
     print "  --moltenvk-revision SHA Verify the checked-out MoltenVK revision"
+    print "  --prebuilt-dxvk DIR Reuse a verified DXVK-macOS component artifact"
     print "  --code-sign-identity ID Sign Mach-O runtime files with this identity"
     print "  --jobs N           Parallel make jobs (default: 4)"
 }
@@ -37,6 +38,7 @@ dxvk_tag=""
 dxvk_revision=""
 moltenvk_tag=""
 moltenvk_revision=""
+prebuilt_dxvk=""
 code_sign_identity="-"
 jobs=4
 
@@ -53,6 +55,7 @@ while (( $# )); do
         --dxvk-revision) dxvk_revision="$2"; shift 2 ;;
         --moltenvk-tag) moltenvk_tag="$2"; shift 2 ;;
         --moltenvk-revision) moltenvk_revision="$2"; shift 2 ;;
+        --prebuilt-dxvk) prebuilt_dxvk="$2"; shift 2 ;;
         --code-sign-identity) code_sign_identity="$2"; shift 2 ;;
         --jobs) jobs="$2"; shift 2 ;;
         --help) usage; exit 0 ;;
@@ -90,12 +93,19 @@ if [[ -n "$dxvk_tag" || -n "$moltenvk_tag" ]]; then
         print -u2 -- "--dxvk-tag and --moltenvk-tag must be provided together."
         exit 2
     fi
-    if [[ ! "$dxvk_tag" =~ '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' ||
+    if [[ ! "$dxvk_tag" =~ '^v[0-9]+\.[0-9]+(\.[0-9]+)?(-[A-Za-z0-9.-]+)?$' ||
           ! "$moltenvk_tag" =~ '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' ]]; then
         print -u2 -- "--dxvk-tag and --moltenvk-tag must name stable vX.Y or vX.Y.Z tags."
         exit 2
     fi
     graphics_runtime=true
+fi
+if [[ -n "$prebuilt_dxvk" ]]; then
+    [[ "$graphics_runtime" == true && -d "$prebuilt_dxvk" ]] || {
+        print -u2 -- "--prebuilt-dxvk requires a graphics runtime and an existing directory."
+        exit 2
+    }
+    prebuilt_dxvk="${prebuilt_dxvk:A}"
 fi
 
 version="${wine_tag#wine-}"
@@ -254,14 +264,20 @@ if $graphics_runtime; then
         make macos
     ) > "$work_dir/moltenvk.log" 2>&1
 
-    print "Building DXVK"
-    mkdir "$dxvk_output_dir"
-    meson setup "$work_dir/dxvk-x64" "$dxvk_source_dir" --cross-file "$dxvk_source_dir/build-win64.txt" \
-        --buildtype release --prefix "$dxvk_output_dir/x64" > "$work_dir/dxvk-x64.log" 2>&1
-    ninja -C "$work_dir/dxvk-x64" install >> "$work_dir/dxvk-x64.log" 2>&1
-    meson setup "$work_dir/dxvk-x32" "$dxvk_source_dir" --cross-file "$dxvk_source_dir/build-win32.txt" \
-        --buildtype release --prefix "$dxvk_output_dir/x32" > "$work_dir/dxvk-x32.log" 2>&1
-    ninja -C "$work_dir/dxvk-x32" install >> "$work_dir/dxvk-x32.log" 2>&1
+    if [[ -n "$prebuilt_dxvk" ]]; then
+        print "Reusing verified DXVK-macOS"
+        "${0:A:h}/verify-dxvk-macos-output.sh" \
+            --output "$prebuilt_dxvk" \
+            --revision "$dxvk_revision" \
+            --tag "$dxvk_tag" > "$work_dir/dxvk.log" 2>&1
+        cp -R "$prebuilt_dxvk" "$dxvk_output_dir"
+    else
+        print "Building DXVK-macOS"
+        "${0:A:h}/build-dxvk-macos.sh" \
+            --source "$dxvk_source_dir" \
+            --workdir "$work_dir/dxvk-build" \
+            --output "$dxvk_output_dir" > "$work_dir/dxvk.log" 2>&1
+    fi
 fi
 
 print "Building Wine"
@@ -393,6 +409,8 @@ if $graphics_runtime; then
     /usr/libexec/PlistBuddy -c "Add :dxvkTag string $dxvk_tag" "$provenance_plist"
     /usr/libexec/PlistBuddy -c "Add :dxvkRevision string $(git -C "$dxvk_source_dir" rev-parse HEAD)" "$provenance_plist"
     /usr/libexec/PlistBuddy -c 'Add :dxvkLicense string zlib' "$provenance_plist"
+    /usr/libexec/PlistBuddy -c "Add :dxvkPortabilityPatchSHA256 string $(<"$dxvk_output_dir/portability-patch.sha256")" "$provenance_plist"
+    /usr/libexec/PlistBuddy -c "Add :dxvkMingw14PatchSHA256 string $(<"$dxvk_output_dir/mingw14-patch.sha256")" "$provenance_plist"
     /usr/libexec/PlistBuddy -c "Add :moltenVKSource string $MOLTENVK_SOURCE" "$provenance_plist"
     /usr/libexec/PlistBuddy -c "Add :moltenVKTag string $moltenvk_tag" "$provenance_plist"
     /usr/libexec/PlistBuddy -c "Add :moltenVKRevision string $(git -C "$moltenvk_source_dir" rev-parse HEAD)" "$provenance_plist"

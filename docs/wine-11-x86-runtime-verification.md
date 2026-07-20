@@ -12,7 +12,7 @@ This record covers the Wine 11 x86_64 graphics candidate built by GitHub Actions
 - GitHub Actions verified the archive, ran `wineboot -u`, compiled and ran the repository's 32-bit WoW64 fixture, and created a GitHub artifact attestation.
 - The archive SHA-256 is `17350ac54792d3e404c85fc560740a957b55552895ef2d73960a5d1551b46d8f`.
 - A local Apple-silicon Rosetta run used a new temporary `WINEPREFIX`; Wine/WoW64 execution completed, but the graphics dependency gate described below did not pass. No Whisky Bottle was read or changed.
-- The archive provenance records Wine `wine-11.0` at `db11d0fe6a169c457e23d007e20404643d067aa8`, DXVK `v3.0.1`, and MoltenVK `v1.4.1`.
+- The archive provenance records Wine `wine-11.0` at `db11d0fe6a169c457e23d007e20404643d067aa8`, upstream DXVK `v3.0.1`, and MoltenVK `v1.4.1`. Upstream DXVK 3.0.1 was later rejected for this backend because MoltenVK does not expose its required Vulkan feature set.
 
 ## First-prefix fix
 
@@ -24,4 +24,4 @@ This candidate is **not a self-contained graphics runtime release**. Local Roset
 
 The cause is reproducible: Wine 11 calls `dlopen(SONAME_LIBVULKAN, RTLD_NOW)` with the bare name `libvulkan.1.dylib`, while Wine strips `DYLD_*` variables before its Windows processes start. `DYLD_FALLBACK_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, and `DYLD_INSERT_LIBRARIES` therefore do not provide a safe bundled-library resolution path for this candidate.
 
-Do not publish or select this runtime as a DXVK/MoltenVK graphics default. It may remain an unsigned, provenance-recorded Wine/WoW64 candidate for further engineering. The safe no-rebuild action is to keep the legacy runtime/graphics backend selected for existing Bottles. A release-grade graphics fix requires a later Wine build that resolves the Vulkan loader and bundled dependencies from a runtime-internal path, followed by the same verify-only and Rosetta gates.
+Do not publish or select this historical runtime as a DXVK/MoltenVK graphics default. It may remain an unsigned, provenance-recorded Wine/WoW64 input for further engineering. The current no-rebuild route replaces upstream DXVK with pinned DXVK-macOS, repairs the extracted dependency closure, regenerates provenance and hashes, and then repeats the static, Rosetta, WoW64, and graphics gates. A new Wine build is justified only if that repackage route proves that a required loader path cannot be repaired outside Wine's compiled modules.

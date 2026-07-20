@@ -74,6 +74,7 @@ dxvk_x64="$libraries/DXVK/x64"
 dxvk_x32="$libraries/DXVK/x32"
 vulkan="$libraries/Vulkan"
 hashes="$libraries/WhiskyWineBinaries.sha256"
+provenance="$libraries/WhiskyWineProvenance.plist"
 
 for file in \
     "$libraries/WhiskyWineVersion.plist" \
@@ -101,8 +102,22 @@ for file in \
 done
 
 plutil -lint "$libraries/WhiskyWineVersion.plist" "$libraries/WhiskyWineProvenance.plist"
-[[ "$(plutil -extract architecture raw "$libraries/WhiskyWineProvenance.plist")" == "$architecture" ]] || {
+[[ "$(plutil -extract architecture raw "$provenance")" == "$architecture" ]] || {
     print -u2 -- "Runtime provenance architecture does not match $architecture"
+    exit 1
+}
+[[ "$(plutil -extract dxvkSource raw "$provenance")" == 'https://github.com/Gcenx/DXVK-macOS.git' ]] || {
+    print -u2 'Runtime does not use the pinned DXVK-macOS source.'
+    exit 1
+}
+expected_patch_hash="$(openssl dgst -sha256 "${0:A:h}/patches/dxvk-macos-portability.patch" | awk '{print $NF}')"
+[[ "$(plutil -extract dxvkPortabilityPatchSHA256 raw "$provenance")" == "$expected_patch_hash" ]] || {
+    print -u2 'Runtime provenance does not match the DXVK portability patch.'
+    exit 1
+}
+expected_mingw_patch_hash="$(openssl dgst -sha256 "${0:A:h}/patches/dxvk-macos-mingw14.patch" | awk '{print $NF}')"
+[[ "$(plutil -extract dxvkMingw14PatchSHA256 raw "$provenance")" == "$expected_mingw_patch_hash" ]] || {
+    print -u2 'Runtime provenance does not match the DXVK MinGW compatibility patch.'
     exit 1
 }
 file -L "$wine" | grep -q "$architecture"
@@ -120,11 +135,21 @@ file "$dxvk_x64/d3d11.dll" | grep -q PE32+
 file "$dxvk_x64/dxgi.dll" | grep -q PE32+
 file "$dxvk_x32/d3d11.dll" | grep -q 'PE32 executable'
 file "$dxvk_x32/dxgi.dll" | grep -q 'PE32 executable'
+for dxgi in "$dxvk_x64/dxgi.dll" "$dxvk_x32/dxgi.dll"; do
+    strings "$dxgi" | grep -Fx VK_KHR_portability_enumeration >/dev/null || {
+        print -u2 "DXVK binary does not enable Vulkan portability: $dxgi"
+        exit 1
+    }
+done
 file "$vulkan/libMoltenVK.dylib" | grep -q "$architecture"
 file "$vulkan/libvulkan.1.dylib" | grep -q "$architecture"
 codesign -v "$vulkan/libMoltenVK.dylib" "$vulkan/libvulkan.1.dylib"
 
 icd_library_path="$(plutil -extract ICD.library_path raw "$vulkan/MoltenVK_icd.json")"
+[[ "$(plutil -extract ICD.is_portability_driver raw "$vulkan/MoltenVK_icd.json")" == true ]] || {
+    print -u2 'MoltenVK ICD must identify itself as a portability driver.'
+    exit 1
+}
 [[ -n "$icd_library_path" && "$icd_library_path" != /* ]] || {
     print -u2 'MoltenVK ICD must use a relative library_path.'
     exit 1
