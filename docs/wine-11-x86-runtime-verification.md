@@ -16,7 +16,13 @@ GitHub Actions run [`29753990552`](https://github.com/micnico/Whisky/actions/run
 - The exact candidate was then downloaded and tested on an Apple M4 through Rosetta in three new `/private/tmp` prefixes. Wineboot, the 32-bit WoW64 fixture, native Vulkan, and the D3D11 fixture passed. Logs recorded DXVK-macOS 1.10.3, `VK_KHR_portability_enumeration`, Apple M4, D3D feature level 11_0, and the bundled `libMoltenVK.dylib`.
 - Wineboot logs contained neither the FreeType nor GnuTLS missing-library diagnostics and did not time out. No existing Whisky Bottle was read or changed.
 
-This candidate contains no Apple Game Porting Toolkit or D3DMetal binary. It is accepted as the Wine 11 x86_64 runtime engineering input, but remains unpublished until application integration and the broader compatibility matrix are completed.
+This candidate contains no Apple Game Porting Toolkit or D3DMetal binary. It is accepted as the Wine 11 x86_64 runtime engineering input and remains unpublished while the broader compatibility matrix is completed.
+
+## Application integration
+
+Whisky can import the exact accepted archive from **Settings → Wine Runtime**. The importer verifies the recorded archive SHA-256 before extraction, installs the runtime under its versioned identifier, and selects it as the default for newly created Bottles. An arbitrary or modified archive is rejected.
+
+Existing Bottles keep their recorded runtime identifier. Moving one to Wine 11 remains an explicit operation in that Bottle's configuration and uses the existing backup, Wineboot smoke test, and automatic restore path. The legacy runtime remains installed and selectable for rollback.
 
 ## Historical rejected candidate
 

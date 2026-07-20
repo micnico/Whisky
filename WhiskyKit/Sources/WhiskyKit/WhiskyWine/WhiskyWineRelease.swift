@@ -54,6 +54,22 @@ public enum WhiskyWineReleaseError: LocalizedError {
 }
 
 extension WhiskyWineInstaller {
+    public static let acceptedWine11RuntimeID = "wine-11.0-dxvk-moltenvk-x86_64"
+    public static let acceptedWine11RuntimeSHA256 =
+        "ccec9f0717135b8405674b0a8e5408d3f9b2b8283f48d0c0c07319045e3d9c9e"
+
+    /// Install the exact Wine 11 engineering candidate recorded in the runtime acceptance evidence.
+    /// This local import path does not publish the archive or replace an existing Bottle's runtime binding.
+    public static func installAcceptedWine11Runtime(from archive: URL) throws {
+        let release = WhiskyWineRelease(
+            id: acceptedWine11RuntimeID,
+            version: SemanticVersion(11, 0, 0),
+            archiveURL: archive,
+            sha256: acceptedWine11RuntimeSHA256
+        )
+        try install(release: release, from: archive)
+    }
+
     static func isValidRuntimeID(_ id: String) -> Bool {
         !id.isEmpty && id.allSatisfy { $0.isLetter || $0.isNumber || ".-_".contains($0) }
     }

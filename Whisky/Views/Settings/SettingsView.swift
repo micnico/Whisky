@@ -17,6 +17,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 import WhiskyKit
 
 struct SettingsView: View {
@@ -24,6 +25,10 @@ struct SettingsView: View {
     @AppStorage("killOnTerminate") var killOnTerminate = true
     @AppStorage("checkWhiskyWineUpdates") var checkWhiskyWineUpdates = true
     @AppStorage("defaultBottleLocation") var defaultBottleLocation = BottleData.defaultBottleDir
+    @State private var activeRuntimeID = WhiskyWineInstaller.activeRuntimeID()
+    @State private var importingRuntime = false
+    @State private var runtimeMessage: String?
+    @State private var runtimeImportFailed = false
 
     var body: some View {
         Form {
@@ -51,10 +56,81 @@ struct SettingsView: View {
                 Toggle("settings.toggle.whisky.updates", isOn: $whiskyUpdate)
                 Toggle("settings.toggle.whiskywine.updates", isOn: $checkWhiskyWineUpdates)
             }
+            Section("settings.runtime") {
+                Picker("settings.runtime.default", selection: activeRuntimeBinding) {
+                    ForEach(WhiskyWineInstaller.installedRuntimeIDs(), id: \.self) { runtimeID in
+                        Text(runtimeID).tag(runtimeID)
+                    }
+                }
+                ActionView(
+                    text: "settings.runtime.import",
+                    subtitle: String(localized: "settings.runtime.import.subtitle"),
+                    actionName: "settings.runtime.choose",
+                    action: chooseRuntimeArchive
+                )
+                .disabled(importingRuntime)
+                if importingRuntime {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                if let runtimeMessage {
+                    Text(runtimeMessage)
+                        .font(.callout)
+                        .foregroundStyle(runtimeImportFailed ? .red : .secondary)
+                }
+            }
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
         .frame(width: ViewWidth.medium)
+    }
+}
+
+private extension SettingsView {
+    var activeRuntimeBinding: Binding<String> {
+        Binding(
+            get: { activeRuntimeID },
+            set: { runtimeID in
+                do {
+                    try WhiskyWineInstaller.activateRuntime(id: runtimeID)
+                    activeRuntimeID = runtimeID
+                    runtimeMessage = nil
+                } catch {
+                    runtimeImportFailed = true
+                    runtimeMessage = error.localizedDescription
+                }
+            }
+        )
+    }
+
+    func chooseRuntimeArchive() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.gzip]
+        panel.begin { result in
+            guard result == .OK, let archive = panel.url else { return }
+            importingRuntime = true
+            runtimeMessage = nil
+            Task.detached(priority: .userInitiated) {
+                do {
+                    try WhiskyWineInstaller.installAcceptedWine11Runtime(from: archive)
+                    await MainActor.run {
+                        activeRuntimeID = WhiskyWineInstaller.acceptedWine11RuntimeID
+                        importingRuntime = false
+                        runtimeImportFailed = false
+                        runtimeMessage = String(localized: "settings.runtime.import.success")
+                    }
+                } catch {
+                    await MainActor.run {
+                        importingRuntime = false
+                        runtimeImportFailed = true
+                        runtimeMessage = error.localizedDescription
+                    }
+                }
+            }
+        }
     }
 }
 

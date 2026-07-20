@@ -109,7 +109,8 @@ public class WhiskyWineInstaller {
         try FileManager.default.createDirectory(at: runtimesFolder, withIntermediateDirectories: true)
 
         if FileManager.default.fileExists(atPath: runtimeFolder.path) {
-            guard containsReleaseRuntime(at: runtimeFolder.appending(path: "Libraries")) else {
+            guard containsReleaseRuntime(at: runtimeFolder.appending(path: "Libraries")),
+                  archiveReceiptMatches(release.sha256, at: runtimeFolder) else {
                 throw WhiskyWineReleaseError.invalidArchive
             }
         } else {
@@ -122,6 +123,7 @@ public class WhiskyWineInstaller {
             guard containsReleaseRuntime(at: stagingFolder.appending(path: "Libraries")) else {
                 throw WhiskyWineReleaseError.invalidArchive
             }
+            try writeArchiveReceipt(release.sha256, at: stagingFolder)
             try FileManager.default.moveItem(at: stagingFolder, to: runtimeFolder)
         }
 
@@ -315,6 +317,18 @@ public class WhiskyWineInstaller {
 }
 
 private extension WhiskyWineInstaller {
+    static func archiveReceiptMatches(_ sha256: String, at runtime: URL) -> Bool {
+        let receipt = runtime.appending(path: "Archive.sha256")
+        guard let value = try? String(contentsOf: receipt, encoding: .utf8) else { return false }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines) == sha256.lowercased()
+    }
+
+    static func writeArchiveReceipt(_ sha256: String, at runtime: URL) throws {
+        try Data((sha256.lowercased() + "\n").utf8).write(
+            to: runtime.appending(path: "Archive.sha256"), options: .atomic
+        )
+    }
+
     static func hasValidRuntimeHashes(at libraries: URL) -> Bool {
         let manifest = libraries.appending(path: "WhiskyWineBinaries.sha256")
         guard let text = try? String(contentsOf: manifest, encoding: .utf8) else { return false }
