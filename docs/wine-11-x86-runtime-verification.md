@@ -24,6 +24,12 @@ Whisky can import the exact accepted archive from **Settings → Wine Runtime**.
 
 Existing Bottles keep their recorded runtime identifier. Moving one to Wine 11 remains an explicit operation in that Bottle's configuration and uses the existing backup, Wineboot smoke test, and automatic restore path. The legacy runtime remains installed and selectable for rollback.
 
+On 2026-07-21, the locally built Whisky application created a new `Wine 11 Smoke` Bottle bound to `wine-11.0-dxvk-moltenvk-x86_64`. Application logs recorded `wineboot.exe -u`, Wine 11.0, the bundled Vulkan environment, and DXVK DLL overrides without an invalid Mach-O-as-PE lookup. The application copied byte-identical x64 and x32 DXVK DLLs into the Bottle, and its D3D11 launch reached DXVK and MoltenVK on Apple M4. A direct run of the same fixture in that Bottle returned zero with D3D feature level 11_0.
+
+The full repository verifier was then repeated against the exact accepted archive in `/private/tmp/whisky-wine11-matrix-20260721`. Static verification, Wineboot, the 32-bit WoW64 fixture, native Vulkan/MoltenVK, and DXVK D3D11 all passed. Loading the rebuilt application left the content hash and modification time of all registered Bottle metadata unchanged; runtime selection remained bound to the new test Bottle only.
+
+This completes the clean-Bottle, Wineboot, WoW64, and D3D11 application-integration gates. D3D12 and a real launcher or game remain separate compatibility gates and must not be inferred from the D3D11 result.
+
 ## Historical rejected candidate
 
 This record covers the Wine 11 x86_64 graphics candidate built by GitHub Actions run `29653014405` and re-verified without rebuilding by run `29673871654` at commit `44d19063`.

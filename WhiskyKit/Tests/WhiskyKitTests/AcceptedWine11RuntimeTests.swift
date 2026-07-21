@@ -79,6 +79,19 @@ final class AcceptedWine11RuntimeTests: XCTestCase {
         XCTAssertEqual(try BottleSettings.decode(from: metadata).runtimeID, settings.runtimeID)
     }
 
+    func testSettingProgramPinnedTwiceDoesNotDuplicatePin() throws {
+        let bottleURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: bottleURL) }
+        try FileManager.default.createDirectory(at: bottleURL, withIntermediateDirectories: true)
+        let bottle = Bottle(bottleUrl: bottleURL)
+        let program = Program(url: bottleURL.appending(path: "program.exe"), bottle: bottle)
+
+        program.pinned = true
+        program.pinned = true
+
+        XCTAssertEqual(bottle.settings.pins.count, 1)
+    }
+
     private func useTemporaryRuntimeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let originalRoot = WhiskyWineInstaller.testingApplicationFolder

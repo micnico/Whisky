@@ -96,6 +96,7 @@ struct PinView: View {
                 let exists = FileManager.default.fileExists(atPath: pin.url?.path(percentEncoded: false) ?? "")
                 return $0.url == pin.url && exists
             }) {
+                guard bottle.settings.pins[index].name != name else { return }
                 bottle.settings.pins[index].name = name
             }
         }

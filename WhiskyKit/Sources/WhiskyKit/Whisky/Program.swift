@@ -37,6 +37,7 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable,
 
     @Published public var pinned: Bool {
         didSet {
+            guard oldValue != pinned else { return }
             if pinned {
                 bottle.settings.pins.append(PinnedProgram(
                     name: name.replacingOccurrences(of: ".exe", with: ""),
