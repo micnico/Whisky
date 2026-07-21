@@ -17,7 +17,6 @@
 //
 
 import Foundation
-import SemanticVersion
 import WhiskyKit
 
 // swiftlint:disable:next todo
@@ -40,7 +39,7 @@ final class BottleVM: ObservableObject, @unchecked Sendable {
     func createNewBottle(bottleName: String, winVersion: WinVersion, bottleURL: URL) -> URL {
         let newBottleDir = bottleURL.appending(path: UUID().uuidString)
 
-        Task.detached {
+        Task { @MainActor in
             var bottleId: Bottle?
             do {
                 try FileManager.default.createDirectory(atPath: newBottleDir.path(percentEncoded: false),
@@ -48,32 +47,34 @@ final class BottleVM: ObservableObject, @unchecked Sendable {
                 let bottle = Bottle(bottleUrl: newBottleDir, inFlight: true)
                 bottleId = bottle
 
-                await MainActor.run {
-                    self.bottles.append(bottle)
-                }
+                self.bottles.append(bottle)
 
                 bottle.settings.windowsVersion = winVersion
                 bottle.settings.name = bottleName
                 bottle.settings.runtimeID = WhiskyWineInstaller.activeRuntimeID()
+                try await Wine.initializeBottle(bottle)
                 try await Wine.changeWinVersion(bottle: bottle, win: winVersion)
-                let wineVer = try await Wine.wineVersion()
-                bottle.settings.wineVersion = SemanticVersion(wineVer) ?? SemanticVersion(0, 0, 0)
-                // Add record
-                await MainActor.run {
-                    self.bottlesList.paths.append(newBottleDir)
-                    self.loadBottles()
+                guard let wineVersion = WhiskyWineInstaller.whiskyWineVersion(for: bottle.settings.runtimeID) else {
+                    throw BottleCreationError.missingRuntimeVersion(bottle.settings.runtimeID)
                 }
+                bottle.settings.wineVersion = wineVersion
+                // Add record
+                self.bottlesList.paths.append(newBottleDir)
+                self.loadBottles()
             } catch {
                 print("Failed to create new bottle: \(error)")
                 if let bottle = bottleId {
-                    await MainActor.run {
-                        if let index = self.bottles.firstIndex(of: bottle) {
-                            self.bottles.remove(at: index)
-                        }
+                    if let index = self.bottles.firstIndex(of: bottle) {
+                        self.bottles.remove(at: index)
                     }
                 }
+                try? FileManager.default.removeItem(at: newBottleDir)
             }
         }
         return newBottleDir
     }
+}
+
+private enum BottleCreationError: Error {
+    case missingRuntimeVersion(String)
 }

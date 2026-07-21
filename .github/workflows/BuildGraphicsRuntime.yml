@@ -438,9 +438,9 @@ jobs:
           log="$RUNNER_TEMP/wineboot-smoke.log"
           wine_arch=()
           [[ '${{ inputs.architecture }}' != x86_64 ]] || wine_arch=(arch -x86_64)
-          WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot -u 2>&1 | tee "$log"
-          if grep -Eq 'NSInternalInconsistencyException|libc\+\+abi: terminating|process_send_command receiving command result timed out' "$log"; then
-            echo 'wineboot returned success after a native service crash or timeout.' >&2
+          WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot.exe -u 2>&1 | tee "$log"
+          if grep -Eq 'invalid \.so library|NSInternalInconsistencyException|libc\+\+abi: terminating|process_send_command receiving command result timed out' "$log"; then
+            echo 'wineboot returned success after an invalid runtime load, native service crash, or timeout.' >&2
             exit 1
           fi
       - name: Smoke test WoW64
@@ -453,7 +453,7 @@ jobs:
           i686-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-win32.c" \
             -o "$SMOKE_DIR/smoke-win32.exe"
           {
-            WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot -u
+            WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot.exe -u
             "${wine_arch[@]}" "$WINE" "$SMOKE_DIR/smoke-win32.exe"
           } 2>&1 | tee "$RUNNER_TEMP/wow64-smoke.log"
       - name: Smoke test native Vulkan and MoltenVK
@@ -483,7 +483,7 @@ jobs:
           x86_64-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-d3d11.c" \
             -o "$SMOKE_DIR/smoke-d3d11.exe" -ld3d11 -ldxgi
           {
-            WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot -u
+            WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot.exe -u
             cp "$SMOKE_DIR/Libraries/DXVK/x64/"*.dll "$WINEPREFIX/drive_c/windows/system32/"
             WINEDEBUG=-all DXVK_LOG_LEVEL=info DXVK_LOG_PATH=none DXVK_STATE_CACHE=0 \
               VK_LOADER_DEBUG=error,warn,driver WINEDLLOVERRIDES="d3d11,dxgi=n,b" \

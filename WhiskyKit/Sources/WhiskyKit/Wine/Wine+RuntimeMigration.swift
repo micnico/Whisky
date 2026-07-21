@@ -61,7 +61,7 @@ public extension Wine {
     }
 
     private static func wineboot(_ bottle: Bottle) async throws -> Int32 {
-        try await processStatus(try runWineProcess(args: ["wineboot", "-u"], bottle: bottle))
+        try await processStatus(try runWineProcess(args: ["wineboot.exe", "-u"], bottle: bottle))
     }
 
     private static func processStatus(_ stream: AsyncStream<ProcessOutput>) async throws -> Int32 {

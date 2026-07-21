@@ -72,9 +72,9 @@ export DYLD_FALLBACK_LIBRARY_PATH="$smoke_dir/Libraries/Vulkan:$smoke_dir/Librar
 run_wineboot() {
     local prefix="$1" log="$2"
     WINEPREFIX="$prefix" WINEDLLOVERRIDES="mscoree,mshtml=" \
-        run_x86 "$wine" wineboot -u 2>&1 | tee "$log"
-    if grep -Eq 'Wine cannot find the FreeType|gnutls_process_attach failed to load libgnutls|NSInternalInconsistencyException|libc\+\+abi: terminating|process_send_command receiving command result timed out' "$log"; then
-        print -u2 'wineboot logged a missing bundled dependency, native service crash, or timeout.'
+        run_x86 "$wine" wineboot.exe -u 2>&1 | tee "$log"
+    if grep -Eq 'Wine cannot find the FreeType|gnutls_process_attach failed to load libgnutls|invalid \.so library|NSInternalInconsistencyException|libc\+\+abi: terminating|process_send_command receiving command result timed out' "$log"; then
+        print -u2 'wineboot logged an invalid runtime component, native service crash, or timeout.'
         return 1
     fi
 }

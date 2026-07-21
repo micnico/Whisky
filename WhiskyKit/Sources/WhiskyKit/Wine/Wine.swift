@@ -129,11 +129,11 @@ public class Wine {
         export PATH=\"\(WhiskyWineInstaller.binFolder(for: runtimeID(for: bottle)).path):$PATH\"
         export WINE=\"wine64\"
         alias wine=\"wine64\"
-        alias winecfg=\"wine64 winecfg\"
+        alias winecfg=\"wine64 winecfg.exe\"
         alias msiexec=\"wine64 msiexec\"
         alias regedit=\"wine64 regedit\"
         alias regsvr32=\"wine64 regsvr32\"
-        alias wineboot=\"wine64 wineboot\"
+        alias wineboot=\"wine64 wineboot.exe\"
         alias wineconsole=\"wine64 wineconsole\"
         alias winedbg=\"wine64 winedbg\"
         alias winefile=\"wine64 winefile\"
@@ -152,6 +152,7 @@ public class Wine {
         _ args: [String], bottle: Bottle?, environment: [String: String] = [:]
     ) async throws -> String {
         var result: [String] = []
+        var didTerminate = false
         let fileHandle = try makeFileHandle()
         fileHandle.writeApplicaitonInfo()
         var environment = environment
@@ -163,12 +164,18 @@ public class Wine {
             args: args, environment: environment, fileHandle: fileHandle, bottle: bottle
         ) {
             switch output {
-            case .started, .terminated:
+            case .started:
                 break
+            case .terminated(let process):
+                didTerminate = true
+                guard process.terminationStatus == 0 else {
+                    throw WineProcessError.terminated(process.terminationStatus)
+                }
             case .message(let message), .error(let message):
                 result.append(message)
             }
         }
+        guard didTerminate else { throw WineProcessError.commandDidNotTerminate }
         return result.joined()
     }
 
@@ -219,12 +226,12 @@ public class Wine {
             "GST_DEBUG": "1"
         ]
         bottle.settings.environmentVariables(wineEnv: &result)
-        result.merge(environment, uniquingKeysWith: { $1 })
         if !WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) {
             result.removeValue(forKey: "WINEDLLOVERRIDES")
             result.removeValue(forKey: "DXVK_ASYNC")
             result.removeValue(forKey: "DXVK_HUD")
         }
+        result.merge(environment, uniquingKeysWith: { $1 })
         configureRuntimeLibraryEnvironment(for: bottle, wineEnv: &result)
         configureVulkanEnvironment(for: bottle, wineEnv: &result)
         return result
@@ -275,6 +282,11 @@ enum WineInterfaceError: Error {
     case invalidResponce
 }
 
+public enum WineProcessError: Error, Equatable {
+    case terminated(Int32)
+    case commandDidNotTerminate
+}
+
 enum RegistryType: String {
     case binary = "REG_BINARY"
     case dword = "REG_DWORD"
@@ -318,7 +330,7 @@ extension Wine {
     }
 
     public static func winVersion(bottle: Bottle) async throws -> WinVersion {
-        let output = try await Wine.runWine(["winecfg", "-v"], bottle: bottle)
+        let output = try await Wine.runWine(["winecfg.exe", "-v"], bottle: bottle)
         let lines = output.split(whereSeparator: \.isNewline)
 
         if let lastLine = lines.last {
@@ -385,13 +397,4 @@ extension Wine {
         return try await Wine.runWine(["regedit"], bottle: bottle)
     }
 
-    @discardableResult
-    public static func cfg(bottle: Bottle) async throws -> String {
-        return try await Wine.runWine(["winecfg"], bottle: bottle)
-    }
-
-    @discardableResult
-    public static func changeWinVersion(bottle: Bottle, win: WinVersion) async throws -> String {
-        return try await Wine.runWine(["winecfg", "-v", win.rawValue], bottle: bottle)
-    }
 }

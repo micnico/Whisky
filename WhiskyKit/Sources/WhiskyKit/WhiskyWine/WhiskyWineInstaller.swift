@@ -290,8 +290,12 @@ public class WhiskyWineInstaller {
     }
 
     public static func whiskyWineVersion() -> SemanticVersion? {
+        whiskyWineVersion(for: activeRuntimeID())
+    }
+
+    public static func whiskyWineVersion(for id: String) -> SemanticVersion? {
         do {
-            let versionPlist = libraryFolder
+            let versionPlist = libraryFolder(for: id)
                 .appending(path: "WhiskyWineVersion")
                 .appendingPathExtension("plist")
 
