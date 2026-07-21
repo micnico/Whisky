@@ -60,7 +60,7 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
 
         // Get rid of duplicates and pins that reference removed files
         var found: Set<URL> = []
-        self.settings.pins = self.settings.pins.filter { pin in
+        let validPins = self.settings.pins.filter { pin in
             guard let url = pin.url else { return false }
             guard !found.contains(url) else { return false }
             found.insert(url)
@@ -73,6 +73,9 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
             }
             let legallyRemoved = pin.removable && volume == nil
             return FileManager.default.fileExists(atPath: urlPath) || legallyRemoved
+        }
+        if validPins != self.settings.pins {
+            self.settings.pins = validPins
         }
     }
 

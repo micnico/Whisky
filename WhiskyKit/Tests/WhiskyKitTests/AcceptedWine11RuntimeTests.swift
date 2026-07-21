@@ -61,6 +61,24 @@ final class AcceptedWine11RuntimeTests: XCTestCase {
         XCTAssertEqual(Bottle(bottleUrl: bottleURL).settings.runtimeID, "legacy")
     }
 
+    func testLoadingBottleDoesNotRewriteUnchangedMetadata() throws {
+        let bottleURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: bottleURL) }
+        try FileManager.default.createDirectory(at: bottleURL, withIntermediateDirectories: true)
+        let metadata = bottleURL.appending(path: "Metadata.plist")
+        var settings = BottleSettings()
+        settings.runtimeID = "wine-11.0-dxvk-moltenvk-x86_64"
+        try settings.encode(to: metadata)
+        let originalDate = Date(timeIntervalSinceReferenceDate: 1)
+        try FileManager.default.setAttributes([.modificationDate: originalDate], ofItemAtPath: metadata.path)
+
+        _ = Bottle(bottleUrl: bottleURL)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: metadata.path)
+        XCTAssertEqual(attributes[.modificationDate] as? Date, originalDate)
+        XCTAssertEqual(try BottleSettings.decode(from: metadata).runtimeID, settings.runtimeID)
+    }
+
     private func useTemporaryRuntimeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let originalRoot = WhiskyWineInstaller.testingApplicationFolder
