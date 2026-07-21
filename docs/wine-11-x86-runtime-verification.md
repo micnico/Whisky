@@ -1,8 +1,8 @@
 # Wine 11 x86_64 candidate verification record
 
-Date: 2026-07-20
+Date: 2026-07-21
 
-Status: current unpublished engineering candidate passed the self-contained runtime, Wineboot, WoW64, local Apple-silicon graphics, and provenance gates.
+Status: retain the current unpublished engineering candidate as an explicit opt-in. It passed the self-contained runtime, Wineboot, basic WoW64, local Apple-silicon graphics, application-integration, and provenance gates. A real 32-bit WinSCP GUI regression remains open, so the candidate is not the default runtime or a general compatibility release.
 
 ## Current accepted engineering candidate
 
@@ -28,7 +28,35 @@ On 2026-07-21, the locally built Whisky application created a new `Wine 11 Smoke
 
 The full repository verifier was then repeated against the exact accepted archive in `/private/tmp/whisky-wine11-matrix-20260721`. Static verification, Wineboot, the 32-bit WoW64 fixture, native Vulkan/MoltenVK, and DXVK D3D11 all passed. Loading the rebuilt application left the content hash and modification time of all registered Bottle metadata unchanged; runtime selection remained bound to the new test Bottle only.
 
-This completes the clean-Bottle, Wineboot, WoW64, and D3D11 application-integration gates. D3D12 and a real launcher or game remain separate compatibility gates and must not be inferred from the D3D11 result.
+The real-GUI matrix then ran copied application files only inside the disposable `Wine 11 Smoke` Bottle. 64-bit 7-Zip opened and worked through Whisky; its missing CJK glyphs are a prefix-font limitation rather than a launch failure. WinSCP 6.5 build 16288's 32-bit console frontend also ran, but its GUI exited with status 5 before presenting a window. Wine tracing recorded a Delphi `0x0eedfade` exception followed by `c0000005` and `Exception frame is not in stack limits`. The same executable remained alive for the observation period in a fresh Wine 7.7 prefix, while Gcenx's official macOS Wine 11.0_1 build reproduced the Wine 11 failure. This isolates a Wine 11 new-WoW64/32-bit Delphi compatibility regression rather than a Whisky launcher, DXVK, or locally built runtime defect.
+
+The matrix was extended with current, upstream-published portable applications. Every downloaded archive matched the publisher's SHA-256 before extraction:
+
+| Application | Architecture | Result | Evidence |
+| --- | --- | --- | --- |
+| WinSCP 6.5.6 portable (`dd91974a...cb3121`) | PE32 i386 | Fail | Exited 5 with the same access-violation/invalid-exception-frame chain |
+| WinSCP 6.6.2 RC experimental portable (`d2a8c4ed...7c7348`) | PE32+ x86_64 | Pass | Remained running; `tasklist.exe` reported `WinSCP.exe` through Whisky's `start /unix` path |
+| Notepad++ 8.9.6.1 portable (`1f33144b...3aca3f`) | PE32 i386 | Pass | Remained running in a fresh prefix and in `Wine 11 Smoke`; `tasklist.exe` reported `notepad++.exe` through `start /unix` |
+
+The WinSCP project independently documents a Wine report for WinSCP 6.5.3 with the same “Invalid access to memory” class of failure. Its 6.6.2 RC release introduced an experimental 64-bit build, which provides a working compatibility route while the 32-bit Delphi/WoW64 regression remains unresolved. These results show that Wine 11's general 32-bit GUI path works; the WinSCP failure must not be generalized to all WoW64 applications.
+
+This completes the clean-Bottle, Wineboot, basic WoW64, independent 32/64-bit GUI, and D3D11 application-integration gates. The WinSCP 32-bit regression remains recorded rather than hidden by the passing samples. D3D12 and a real launcher or game remain separate compatibility gates and must not be inferred from the D3D11 result.
+
+## Runtime route decision
+
+Keep the provenance-linked Whisky archive as the accepted Wine 11 engineering candidate. Do not replace it with Gcenx Wine 11.0_1: the reference archive (`b50dc50ec7f41d58b115a6b685d4d1315ba3c797bd3aa0f49213f2703cb82388`) reproduces the same WinSCP 32-bit failure and therefore does not provide a compatibility fix. It also does not replace this candidate's verified Whisky-specific DXVK-macOS, MoltenVK, dependency-closure, archive-hash, and provenance work. Continue using Gcenx as an upstream build and regression comparison.
+
+No new Wine build is justified by the current evidence. Repackage the accepted archive for runtime-only dependency repairs, and rebuild Wine only for a reviewed Wine source change or a newer pinned Wine release that needs evaluation.
+
+Wine 11 may become the default only after all of these remaining gates are recorded:
+
+1. A D3D12 workload passes with a separately licensed backend, or D3D12 is explicitly excluded from that release channel.
+2. A real supported launcher or game installs, updates, and starts in a disposable Bottle.
+3. Upgrade and rollback are repeated on a copy of a legacy Bottle without changing the original.
+4. The WinSCP 32-bit regression has either an upstream fix or a documented compatibility route that preserves one-click per-Bottle fallback to Wine 7.
+5. Any distributed archive passes the signing and notarization policy in `runtime-acceptance.md`; until then, the exact SHA-256 local import remains the only supported route.
+
+Apple Game Porting Toolkit and D3DMetal remain user-provided optional inputs. They are not present in this archive and must not be downloaded, copied, or redistributed by the project workflow.
 
 ## Historical rejected candidate
 
