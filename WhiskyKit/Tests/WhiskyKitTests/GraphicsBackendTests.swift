@@ -54,6 +54,7 @@ final class GraphicsBackendTests: XCTestCase {
 
         let installation = try D3DMetalInstallation.detect(at: root)
         XCTAssertEqual(installation.version, "4.0b1")
+        XCTAssertEqual(installation.contentSHA256?.count, 64)
 
         var environment = ["WINEDLLPATH": "/runtime/wine"]
         installation.environmentVariables(wineEnv: &environment)
@@ -70,7 +71,38 @@ final class GraphicsBackendTests: XCTestCase {
         XCTAssertThrowsError(try D3DMetalInstallation.detect(at: root))
     }
 
-    func testBackendSwitchRestoresRuntimeDLLs() throws {
+    func testD3DMetalDetectionBindsFileContents() throws {
+        let root = try makeD3DMetalInstallation(version: "4.0b1")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = try D3DMetalInstallation.detect(at: root)
+        let framework = root.appending(
+            path: "redist/lib/external/D3DMetal.framework/Versions/A/D3DMetal"
+        )
+        var contents = try Data(contentsOf: framework)
+        contents.append(Data("changed".utf8))
+        try contents.write(to: framework)
+
+        XCTAssertNotEqual(try D3DMetalInstallation.detect(at: root).contentSHA256, original.contentSHA256)
+    }
+
+    func testD3DMetalMetadataWithoutDigestStillDecodes() throws {
+        var propertyList = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: PropertyListEncoder().encode(
+                    D3DMetalInstallation(rootURL: URL(fileURLWithPath: "/tmp/gptk"), version: "4.0b1")
+                ),
+                format: nil
+            ) as? [String: Any]
+        )
+        propertyList.removeValue(forKey: "contentSHA256")
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: propertyList, format: .xml, options: 0
+        )
+
+        XCTAssertNil(try PropertyListDecoder().decode(D3DMetalInstallation.self, from: data).contentSHA256)
+    }
+
+    func testBackendSwitchUsesD3DMetalInPlaceAndRestoresRuntimeDLLs() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let installationRoot = try makeD3DMetalInstallation(version: "4.0b1")
         let originalRoot = WhiskyWineInstaller.testingApplicationFolder
@@ -99,14 +131,24 @@ final class GraphicsBackendTests: XCTestCase {
         bottle.settings.d3dMetalInstallation = try D3DMetalInstallation.detect(at: installationRoot)
         bottle.settings.graphicsBackend = .d3dMetal
         try Wine.prepareGraphicsBackend(for: bottle)
+        let linkedDLL = try FileManager.default.destinationOfSymbolicLink(
+            atPath: system32.appending(path: "d3d11.dll").path
+        )
         XCTAssertEqual(
-            try Data(contentsOf: system32.appending(path: "d3d11.dll")),
-            try Data(contentsOf: installationRoot.appending(path: "redist/lib/wine/x86_64-windows/d3d11.dll"))
+            URL(fileURLWithPath: linkedDLL).resolvingSymlinksInPath(),
+            installationRoot.appending(path: "redist/lib/wine/x86_64-windows/d3d11.dll")
+                .resolvingSymlinksInPath()
         )
         XCTAssertEqual(try String(contentsOf: syswow64.appending(path: "d3d11.dll")), "dxvk")
 
+        try FileManager.default.removeItem(at: installationRoot)
         bottle.settings.graphicsBackend = .wineD3D
         try Wine.prepareGraphicsBackend(for: bottle)
+        XCTAssertEqual(
+            try system32.appending(path: "d3d11.dll")
+                .resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink,
+            false
+        )
         XCTAssertEqual(try String(contentsOf: system32.appending(path: "d3d11.dll")), "wine-x64")
         XCTAssertEqual(try String(contentsOf: syswow64.appending(path: "d3d11.dll")), "wine-x32")
     }

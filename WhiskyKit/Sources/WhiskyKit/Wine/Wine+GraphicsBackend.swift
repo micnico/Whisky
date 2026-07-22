@@ -44,11 +44,17 @@ public extension Wine {
                 throw GraphicsBackendError.d3dMetalNotConfigured
             }
             let current = try D3DMetalInstallation.detect(at: saved.rootURL)
-            guard current.version == saved.version else {
-                throw GraphicsBackendError.d3dMetalVersionChanged(saved.version, current.version)
+            guard current.version == saved.version,
+                  current.contentSHA256 == saved.contentSHA256 else {
+                throw GraphicsBackendError.d3dMetalInstallationChanged
             }
             try restoreWineD3D(bottle: bottle)
-            try replaceGraphicsDLLs(for: bottle, x64URL: current.windowsDLLURL)
+            try FileManager.default.replaceDLLs(
+                in: bottle.url.appending(path: "drive_c/windows/system32"),
+                withContentsIn: current.windowsDLLURL,
+                names: ["d3d10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll"],
+                symbolicLinks: true
+            )
             if WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) {
                 try replaceGraphicsDLLs(for: bottle, x32: "DXVK/x32")
             }
@@ -70,14 +76,13 @@ public extension Wine {
     }
 
     private static func replaceGraphicsDLLs(
-        for bottle: Bottle, x64: String? = nil, x32: String? = nil, x64URL: URL? = nil,
-        names: Set<String>? = nil
+        for bottle: Bottle, x64: String? = nil, x32: String? = nil, names: Set<String>? = nil
     ) throws {
         let library = WhiskyWineInstaller.libraryFolder(for: runtimeID(for: bottle))
-        if let source = x64URL ?? x64.map({ library.appending(path: $0) }) {
+        if let x64 {
             try FileManager.default.replaceDLLs(
                 in: bottle.url.appending(path: "drive_c/windows/system32"),
-                withContentsIn: source,
+                withContentsIn: library.appending(path: x64),
                 names: names
             )
         }
@@ -95,15 +100,15 @@ public enum GraphicsBackendError: LocalizedError, Equatable {
     case dxvkUnavailable
     case d3dMetalUnsupportedRuntime
     case d3dMetalNotConfigured
-    case d3dMetalVersionChanged(String, String)
+    case d3dMetalInstallationChanged
 
     public var errorDescription: String? {
         switch self {
         case .dxvkUnavailable: return "The selected runtime does not contain both DXVK architectures."
         case .d3dMetalUnsupportedRuntime: return "D3DMetal requires a verified CrossOver Wine runtime."
         case .d3dMetalNotConfigured: return "No user-provided D3DMetal installation is bound to this Bottle."
-        case .d3dMetalVersionChanged(let expected, let actual):
-            return "D3DMetal changed from \(expected) to \(actual); select it again before launching."
+        case .d3dMetalInstallationChanged:
+            return "D3DMetal changed; select the installation again before launching."
         }
     }
 }

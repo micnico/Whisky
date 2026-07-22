@@ -78,8 +78,9 @@ calls when Apple does not ship the required i386 modules.
 3. Record the CrossOver source URL, archive SHA-256, Wine version, and LGPL
    license in runtime provenance.
 4. Keep GPTK 4 outside the Wine runtime. Require a user-selected installation,
-   inspect it in place, record its version and checksum metadata, and never
-   copy or redistribute it.
+   inspect it in place, record its version and checksum metadata, and expose
+   its four x64 DLLs through reversible Bottle-local symbolic links rather
+   than copying or redistributing them.
 5. Validate the CrossOver Wine build without GPTK first: static archive,
    `wineboot`, WoW64, and the existing x32/x64 DXVK path.
 6. Validate user-provided GPTK 4 separately on a local Metal host with 64-bit

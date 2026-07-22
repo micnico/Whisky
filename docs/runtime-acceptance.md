@@ -60,7 +60,19 @@ scripts/verify-x86-runtime-on-apple-silicon.sh \
   --workdir /private/tmp/whisky-wine11-rosetta-smoke
 ```
 
-The script first performs the static archive checks, then runs Wine bootstrap, WoW64, and Metal/Vulkan/D3D11 as independent phases with separate temporary prefixes. Pass `--phase wineboot`, `--phase wow64`, or `--phase graphics` to rerun only one layer. The graphics phase requires a real Metal device, uses `VK_DRIVER_FILES`, runs a native Vulkan/MoltenVK probe before D3D11, and installs only the archive's x64 DXVK DLLs into its temporary prefix. Its bootstrap command temporarily disables `mscoree` and `mshtml`: Wine's clean-prefix registration would otherwise invoke the interactive Mono/Gecko downloader when those add-ons are absent. The script does not create, modify, or migrate a Whisky Bottle, and leaves its work directory and per-phase logs for inspection.
+The script first performs the static archive checks, then runs Wine bootstrap, WoW64, and Metal/Vulkan/D3D11 as independent phases with separate temporary prefixes. Pass `--phase wineboot`, `--phase wow64`, or `--phase graphics` to rerun only one layer. The graphics phase requires a real Metal device, uses `VK_DRIVER_FILES`, runs a native Vulkan/MoltenVK probe, and then executes both x64 and x86 D3D11 fixtures with the archive's matching DXVK DLLs. Its bootstrap command temporarily disables `mscoree` and `mshtml`: Wine's clean-prefix registration would otherwise invoke the interactive Mono/Gecko downloader when those add-ons are absent. The script does not create, modify, or migrate a Whisky Bottle, and leaves its work directory and per-phase logs for inspection.
+
+Test a user-obtained GPTK/D3DMetal installation separately with the CrossOver Wine candidate:
+
+```sh
+scripts/verify-x86-runtime-on-apple-silicon.sh \
+  --archive cx-26.3-wine-11.0-dxvk-moltenvk-x86_64.tar.gz \
+  --workdir /private/tmp/whisky-wine11-d3dmetal-smoke \
+  --phase d3dmetal \
+  --d3dmetal-root "/path/to/Evaluation environment for Windows games 4.0 beta 1"
+```
+
+This phase validates the four x64 PE DLLs and the x86_64 support libraries, creates a new temporary prefix, links its four `system32` graphics entries to the user-owned files in place, and runs x64 D3D11 and D3D12 device-creation fixtures. It never copies those Apple files into the runtime, repository, or temporary prefix. Removing the selected installation leaves broken links rather than hidden copies; selecting WineD3D or DXVK replaces those links with the bound runtime's own files.
 
 ## Verify an existing build artifact without rebuilding Wine
 
