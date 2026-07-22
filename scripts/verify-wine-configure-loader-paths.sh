@@ -1,18 +1,20 @@
 #!/bin/zsh
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Prove Wine's configure step embeds runtime-relative dlopen() paths without
-# compiling Wine. The caller supplies an already checked-out Wine source tree.
+# Prove Wine's configure step and targeted modules without a full Wine build.
+# The caller supplies an already checked-out Wine source tree.
 set -euo pipefail
+readonly SCRIPT_NAME="${0:t}"
 
 usage() {
-    print "Usage: ${0:t} --source DIR --workdir DIR [--architecture arm64|x86_64] [--compile-win32u] [--jobs N]"
+    print "Usage: $SCRIPT_NAME --source DIR --workdir DIR [--architecture arm64|x86_64] [--compile-win32u] [--compile-winemac] [--jobs N]"
 }
 
 source_dir=""
 work_dir=""
 architecture="$(uname -m)"
 compile_win32u=false
+compile_winemac=false
 jobs=3
 while (( $# )); do
     case "$1" in
@@ -20,6 +22,7 @@ while (( $# )); do
         --workdir) work_dir="$2"; shift 2 ;;
         --architecture) architecture="$2"; shift 2 ;;
         --compile-win32u) compile_win32u=true; shift ;;
+        --compile-winemac) compile_winemac=true; shift ;;
         --jobs) jobs="$2"; shift 2 ;;
         --help) usage; exit 0 ;;
         *) print -u2 "Unknown argument: $1"; usage; exit 2 ;;
@@ -40,7 +43,7 @@ fi
     exit 2
 }
 
-for command in brew grep make strings; do
+for command in brew grep make nm otool strings; do
     command -v "$command" >/dev/null || {
         print -u2 "Missing required command: $command"
         exit 1
@@ -107,6 +110,20 @@ if $compile_win32u; then
         print -u2 'Compiled win32u.so does not resolve Vulkan from the bundled runtime path.'
         exit 1
     }
+fi
+
+if $compile_winemac; then
+    module="$work_dir/build/dlls/winemac.drv/winemac.so"
+    make -C "$work_dir/build" -j"$jobs" dlls/winemac.drv/winemac.so
+    otool -L "$module" | grep -F '/System/Library/Frameworks/OpenGL.framework/' >/dev/null || {
+        print -u2 'Compiled winemac.so does not link the native macOS OpenGL framework.'
+        exit 1
+    }
+    nm -gU "$module" | grep -Eq '[[:space:]]_macdrv_functions$' || {
+        print -u2 'Compiled winemac.so does not export the CrossOver D3DMetal bridge ABI.'
+        exit 1
+    }
+    print 'Native macOS OpenGL and D3DMetal bridge preflight passed; X11/GLX warnings do not disable winemac.drv.'
 fi
 
 print "Wine configure loader-path preflight passed for $architecture."

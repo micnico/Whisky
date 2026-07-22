@@ -174,11 +174,16 @@ jobs:
               https://gitlab.winehq.org/wine/wine.git "$source_dir"
             test "$(git -C "$source_dir" rev-parse HEAD)" = "${{ inputs.wine_revision }}"
           fi
+          winemac_args=()
+          if [[ '${{ inputs.wine_distribution }}' == crossover ]]; then
+            winemac_args=(--compile-winemac)
+          fi
           scripts/verify-wine-configure-loader-paths.sh \
             --source "$source_dir" \
             --workdir "$work_dir" \
             --architecture "${{ inputs.architecture }}" \
             --compile-win32u \
+            "${winemac_args[@]}" \
             --jobs 3
   graphics-preflight:
     if: ${{ inputs.graphics_preflight || inputs.build_candidate }}
