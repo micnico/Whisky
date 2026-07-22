@@ -130,9 +130,31 @@ public enum DXVKHUD: Codable, Equatable {
     case full, partial, fps, off
 }
 
+public enum GraphicsBackend: String, CaseIterable, Codable, Hashable, Sendable {
+    case legacy
+    case wineD3D
+    case dxvk
+    case d3dMetal
+}
+
+public struct BottleGraphicsConfig: Codable, Equatable {
+    var backend: GraphicsBackend = .legacy
+    var d3dMetalInstallation: D3DMetalInstallation?
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.backend = try container.decodeIfPresent(GraphicsBackend.self, forKey: .backend) ?? .legacy
+        self.d3dMetalInstallation = try container.decodeIfPresent(
+            D3DMetalInstallation.self, forKey: .d3dMetalInstallation
+        )
+    }
+}
+
 public struct BottleDXVKConfig: Codable, Equatable {
     var dxvk: Bool = false
-    var dxvkAsync: Bool = true
+    var dxvkAsync: Bool = false
     var dxvkHud: DXVKHUD = .off
 
     public init() {}
@@ -140,7 +162,7 @@ public struct BottleDXVKConfig: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.dxvk = try container.decodeIfPresent(Bool.self, forKey: .dxvk) ?? false
-        self.dxvkAsync = try container.decodeIfPresent(Bool.self, forKey: .dxvkAsync) ?? true
+        self.dxvkAsync = try container.decodeIfPresent(Bool.self, forKey: .dxvkAsync) ?? false
         self.dxvkHud = try container.decodeIfPresent(DXVKHUD.self, forKey: .dxvkHud) ?? .off
     }
 }
@@ -153,12 +175,14 @@ public struct BottleSettings: Codable, Equatable {
     private var wineConfig: BottleWineConfig
     private var metalConfig: BottleMetalConfig
     private var dxvkConfig: BottleDXVKConfig
+    private var graphicsConfig: BottleGraphicsConfig
 
     public init() {
         self.info = BottleInfo()
         self.wineConfig = BottleWineConfig()
         self.metalConfig = BottleMetalConfig()
         self.dxvkConfig = BottleDXVKConfig()
+        self.graphicsConfig = BottleGraphicsConfig()
     }
 
     // swiftlint:disable line_length
@@ -169,6 +193,9 @@ public struct BottleSettings: Codable, Equatable {
         self.wineConfig = try container.decodeIfPresent(BottleWineConfig.self, forKey: .wineConfig) ?? BottleWineConfig()
         self.metalConfig = try container.decodeIfPresent(BottleMetalConfig.self, forKey: .metalConfig) ?? BottleMetalConfig()
         self.dxvkConfig = try container.decodeIfPresent(BottleDXVKConfig.self, forKey: .dxvkConfig) ?? BottleDXVKConfig()
+        self.graphicsConfig = try container.decodeIfPresent(
+            BottleGraphicsConfig.self, forKey: .graphicsConfig
+        ) ?? BottleGraphicsConfig()
     }
     // swiftlint:enable line_length
 
@@ -248,6 +275,21 @@ public struct BottleSettings: Codable, Equatable {
         set { dxvkConfig.dxvkHud = newValue }
     }
 
+    /// Explicit backend selection. Existing Bottle metadata remains `legacy` until the user changes it.
+    public var graphicsBackend: GraphicsBackend {
+        get { graphicsConfig.backend }
+        set { graphicsConfig.backend = newValue }
+    }
+
+    public var d3dMetalInstallation: D3DMetalInstallation? {
+        get { graphicsConfig.d3dMetalInstallation }
+        set { graphicsConfig.d3dMetalInstallation = newValue }
+    }
+
+    public var usesDXVK: Bool {
+        graphicsBackend == .dxvk || (graphicsBackend == .legacy && dxvk)
+    }
+
     @discardableResult
     public static func decode(from metadataURL: URL) throws -> BottleSettings {
         guard FileManager.default.fileExists(atPath: metadataURL.path(percentEncoded: false)) else {
@@ -279,7 +321,7 @@ public struct BottleSettings: Codable, Equatable {
 
     // swiftlint:disable:next cyclomatic_complexity
     public func environmentVariables(wineEnv: inout [String: String]) {
-        if dxvk {
+        if usesDXVK {
             wineEnv.updateValue("dxgi,d3d9,d3d10core,d3d11=n,b", forKey: "WINEDLLOVERRIDES")
             switch dxvkHud {
             case .full:
@@ -293,8 +335,13 @@ public struct BottleSettings: Codable, Equatable {
             }
         }
 
-        if dxvk && dxvkAsync {
+        if usesDXVK && dxvkAsync {
             wineEnv.updateValue("1", forKey: "DXVK_ASYNC")
+        }
+
+        if graphicsBackend == .d3dMetal, let installation = d3dMetalInstallation {
+            wineEnv["WINEDLLOVERRIDES"] = "d3d9,d3d10,d3d10core,d3d11,d3d12,dxgi=n,b"
+            installation.environmentVariables(wineEnv: &wineEnv)
         }
 
         switch enhancedSync {

@@ -1,0 +1,16 @@
+diff --git a/src/dxvk/dxvk_instance.cpp b/src/dxvk/dxvk_instance.cpp
+index 2f9d8f2..860f5a5 100644
+--- a/src/dxvk/dxvk_instance.cpp
++++ b/src/dxvk/dxvk_instance.cpp
+@@ -105,2 +105,8 @@
+     DxvkNameSet extensionsEnabled;
+     DxvkNameSet extensionsAvailable = DxvkNameSet::enumInstanceExtensions(m_vkl);
++    VkInstanceCreateFlags instanceFlags = 0;
++
++    if (extensionsAvailable.supports(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
++      extensionsEnabled.add(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
++      instanceFlags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
++    }
+@@ -139,1 +145,1 @@
+-    info.flags                    = 0;
++    info.flags                    = instanceFlags;

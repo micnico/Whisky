@@ -3,6 +3,22 @@ name: Build Graphics Runtime Candidate
 on:
   workflow_dispatch:
     inputs:
+      wine_distribution:
+        description: Wine source distribution
+        required: true
+        default: winehq
+        type: choice
+        options:
+          - winehq
+          - crossover
+      architecture:
+        description: Runtime host architecture
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x86_64
       wine_tag:
         description: Official stable Wine tag
         required: true
@@ -14,14 +30,14 @@ on:
         default: db11d0fe6a169c457e23d007e20404643d067aa8
         type: string
       dxvk_tag:
-        description: DXVK stable tag
+        description: DXVK-macOS release tag
         required: true
-        default: v3.0.1
+        default: v1.10.3-20230507-repack
         type: string
       dxvk_revision:
-        description: Full DXVK commit expected for the tag
+        description: Full DXVK-macOS commit expected for the tag
         required: true
-        default: c850747f1df24180ce97b7a9094603f39da1251d
+        default: 8f1e28deed3ad30802f7e1bdff428ec14e6e7817
         type: string
       moltenvk_tag:
         description: MoltenVK stable tag
@@ -33,79 +49,582 @@ on:
         required: true
         default: db445ff2042d9ce348c439ad8451112f354b8d2a
         type: string
+      build_candidate:
+        description: Build Wine after preflight (disabled by default)
+        required: true
+        default: false
+        type: boolean
+      configure_preflight:
+        description: Configure Wine and compile the loader probe without a full build
+        required: true
+        default: false
+        type: boolean
+      graphics_preflight:
+        description: Build and verify DXVK-macOS without building Wine
+        required: true
+        default: false
+        type: boolean
+      dxvk_artifact_run_id:
+        description: Existing run ID containing a verified dxvk-macos-preflight artifact
+        required: false
+        default: ''
+        type: string
+      repackage_candidate:
+        description: Repair runtime-only dependencies in an existing artifact without rebuilding Wine
+        required: true
+        default: false
+        type: boolean
+      source_artifact_run_id:
+        description: Existing Actions run ID whose build artifact should be verified without rebuilding Wine
+        required: false
+        default: ''
+        type: string
+      source_artifact_signed:
+        description: Whether the existing artifact was signed with Developer ID Application
+        required: true
+        default: false
+        type: boolean
 
 permissions:
+  actions: read
   contents: read
   attestations: write
   id-token: write
 
+env:
+  CROSSOVER_SOURCE_URL: https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz
+  CROSSOVER_SOURCE_SHA256: ac99c8ca4b3848f3e81784135f023df266b61c2345726ea55a50b3e030dd6872
+
 jobs:
-  build:
-    runs-on: macos-14
-    timeout-minutes: 180
+  preflight:
+    runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - name: Confirm Apple Silicon runner
-        run: test "$(uname -m)" = arm64
+      - uses: actions/checkout@v7
+      - name: Confirm requested runner architecture
+        run: test "$(uname -m)" = "${{ inputs.architecture }}"
+      - name: Validate selected operation
+        run: |
+          build_candidate='${{ inputs.build_candidate }}'
+          configure_preflight='${{ inputs.configure_preflight }}'
+          graphics_preflight='${{ inputs.graphics_preflight }}'
+          dxvk_run_id='${{ inputs.dxvk_artifact_run_id }}'
+          repackage_candidate='${{ inputs.repackage_candidate }}'
+          source_run_id='${{ inputs.source_artifact_run_id }}'
+          source_signed='${{ inputs.source_artifact_signed }}'
+          wine_distribution='${{ inputs.wine_distribution }}'
+          [[ "$build_candidate" != true || "$repackage_candidate" != true ]]
+          [[ "$configure_preflight" != true || "$repackage_candidate" != true ]]
+          [[ -z "$dxvk_run_id" || "$graphics_preflight" != true ]]
+          [[ "$build_candidate" != true || -z "$source_run_id" ]]
+          [[ "$repackage_candidate" != true || "$graphics_preflight" == true || -n "$dxvk_run_id" ]]
+          [[ "$repackage_candidate" != true || -n "$source_run_id" ]]
+          [[ "$repackage_candidate" != true || "$source_signed" != true ]]
+          if [[ "$wine_distribution" == crossover ]]; then
+            [[ '${{ inputs.architecture }}' == x86_64 ]]
+            [[ '${{ inputs.wine_tag }}' == wine-11.0 ]]
+          fi
+      - name: Reject nounset-unsafe empty Bash arrays
+        run: >-
+          ! grep -nE '^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=\(\)$'
+          .github/workflows/BuildGraphicsRuntime.yml
+      - name: Validate pinned revisions
+        run: |
+          set -euo pipefail
+          for revision in '${{ inputs.dxvk_revision }}' '${{ inputs.moltenvk_revision }}'; do
+            [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          done
+          if [[ '${{ inputs.wine_distribution }}' == winehq ]]; then
+            [[ '${{ inputs.wine_revision }}' =~ ^[0-9a-f]{40}$ ]]
+          fi
+          source_run_id='${{ inputs.source_artifact_run_id }}'
+          dxvk_run_id='${{ inputs.dxvk_artifact_run_id }}'
+          [[ -z "$source_run_id" || "$source_run_id" =~ ^[0-9]+$ ]]
+          [[ -z "$dxvk_run_id" || "$dxvk_run_id" =~ ^[0-9]+$ ]]
+          verify_tag_revision() {
+            local source="$1" tag="$2" expected="$3" actual
+            actual="$(git ls-remote "$source" "refs/tags/$tag^{}" | awk 'NR == 1 { print $1 }')"
+            [[ -n "$actual" ]] || actual="$(git ls-remote "$source" "refs/tags/$tag" | awk 'NR == 1 { print $1 }')"
+            [[ "$actual" == "$expected" ]] || {
+              echo "Tag $tag resolved to ${actual:-nothing}, expected $expected" >&2
+              exit 1
+            }
+          }
+          if [[ '${{ inputs.wine_distribution }}' == winehq ]]; then
+            verify_tag_revision https://gitlab.winehq.org/wine/wine.git '${{ inputs.wine_tag }}' '${{ inputs.wine_revision }}'
+          fi
+          verify_tag_revision https://github.com/Gcenx/DXVK-macOS.git '${{ inputs.dxvk_tag }}' '${{ inputs.dxvk_revision }}'
+          verify_tag_revision https://github.com/KhronosGroup/MoltenVK.git '${{ inputs.moltenvk_tag }}' '${{ inputs.moltenvk_revision }}'
+      - name: Verify pinned CrossOver source
+        if: ${{ inputs.wine_distribution == 'crossover' }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/crossover-sources.tar.gz"
+          curl --fail --location --silent --show-error "$CROSSOVER_SOURCE_URL" --output "$archive"
+          scripts/verify-crossover-wine-source.sh \
+            --archive "$archive" \
+            --sha256 "$CROSSOVER_SOURCE_SHA256" \
+            --version 11.0
+      - name: Install configure preflight dependencies
+        if: ${{ inputs.build_candidate || inputs.configure_preflight }}
+        run: >-
+          brew install bison llvm lld freetype gnutls libusb libx11 libxext sdl2 sdl3 vulkan-headers vulkan-loader
+      - name: Verify bundleable Wine runtime dependencies
+        if: ${{ inputs.build_candidate || inputs.configure_preflight }}
+        run: scripts/verify-wine-runtime-dependencies.sh --architecture "${{ inputs.architecture }}"
+      - name: Prove Wine configure embeds runtime loader paths
+        if: ${{ inputs.build_candidate || inputs.configure_preflight }}
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/wine-configure-source"
+          work_dir="$RUNNER_TEMP/wine-configure-loader-paths"
+          if [[ '${{ inputs.wine_distribution }}' == crossover ]]; then
+            mkdir "$source_dir"
+            tar -xzf "$RUNNER_TEMP/crossover-sources.tar.gz" \
+              -C "$source_dir" --strip-components=2 sources/wine
+          else
+            git clone --quiet --depth 1 --branch "${{ inputs.wine_tag }}" \
+              https://gitlab.winehq.org/wine/wine.git "$source_dir"
+            test "$(git -C "$source_dir" rev-parse HEAD)" = "${{ inputs.wine_revision }}"
+          fi
+          winemac_args=(--jobs 3)
+          if [[ '${{ inputs.wine_distribution }}' == crossover ]]; then
+            winemac_args=(--compile-winemac --jobs 3)
+          fi
+          scripts/verify-wine-configure-loader-paths.sh \
+            --source "$source_dir" \
+            --workdir "$work_dir" \
+            --architecture "${{ inputs.architecture }}" \
+            --compile-win32u \
+            "${winemac_args[@]}"
+  graphics-preflight:
+    if: ${{ (inputs.graphics_preflight || inputs.build_candidate) && inputs.dxvk_artifact_run_id == '' }}
+    needs: preflight
+    runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install DXVK-macOS build dependencies
+        run: brew install meson ninja mingw-w64 glslang
+      - name: Build and verify DXVK-macOS
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/dxvk-macos-source"
+          git clone --quiet --depth 1 --branch '${{ inputs.dxvk_tag }}' \
+            https://github.com/Gcenx/DXVK-macOS.git "$source_dir"
+          test "$(git -C "$source_dir" rev-parse HEAD)" = '${{ inputs.dxvk_revision }}'
+          scripts/build-dxvk-macos.sh \
+            --source "$source_dir" \
+            --workdir "$RUNNER_TEMP/dxvk-macos-build" \
+            --output "$RUNNER_TEMP/dxvk-macos-output"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dxvk-macos-preflight
+          path: ${{ runner.temp }}/dxvk-macos-output
+          retention-days: 14
+
+  build:
+    if: ${{ always() && inputs.build_candidate && inputs.source_artifact_run_id == '' && needs.preflight.result == 'success' && (needs.graphics-preflight.result == 'success' || inputs.dxvk_artifact_run_id != '') }}
+    needs: [preflight, graphics-preflight]
+    runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
+    timeout-minutes: 180
+    outputs:
+      runtime_signed: ${{ steps.runtime_metadata.outputs.runtime_signed }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: dxvk-macos-preflight
+          path: ${{ runner.temp }}/dxvk-macos-preflight
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.dxvk_artifact_run_id || github.run_id }}
+      - name: Confirm requested runner architecture
+        run: test "$(uname -m)" = "${{ inputs.architecture }}"
+      - name: Prepare optional Developer ID signing
+        env:
+          RUNTIME_SIGNING_P12_BASE64: ${{ secrets.WHISKY_RUNTIME_SIGNING_P12_BASE64 }}
+          RUNTIME_SIGNING_P12_PASSWORD: ${{ secrets.WHISKY_RUNTIME_SIGNING_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$RUNTIME_SIGNING_P12_BASE64" || -z "$RUNTIME_SIGNING_P12_PASSWORD" ]]; then
+            echo "RUNTIME_SIGNED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          keychain_path="$RUNNER_TEMP/runtime-signing.keychain-db"
+          certificate_path="$RUNNER_TEMP/runtime-signing.p12"
+          keychain_password="$(uuidgen)"
+          printf '%s' "$RUNTIME_SIGNING_P12_BASE64" | base64 -D > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" -P "$RUNTIME_SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          identity="$(security find-identity -v -p codesigning "$keychain_path" | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -n 1)"
+          test -n "$identity"
+          echo "RUNTIME_CODE_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "RUNTIME_SIGNED=true" >> "$GITHUB_ENV"
       - name: Install build dependencies
         run: >-
           brew install bison llvm lld meson ninja mingw-w64 cmake glslang
-          vulkan-headers vulkan-loader
+          vulkan-headers vulkan-loader freetype gnutls libusb libx11 libxext sdl2 sdl3
       - name: Build candidate
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
           DXVK_TAG: ${{ inputs.dxvk_tag }}
           MOLTENVK_TAG: ${{ inputs.moltenvk_tag }}
         run: |
-          runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
+          set -euo pipefail
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+            crossover_archive="$RUNNER_TEMP/crossover-sources.tar.gz"
+            curl --fail --location --silent --show-error \
+              "$CROSSOVER_SOURCE_URL" --output "$crossover_archive"
+            scripts/verify-crossover-wine-source.sh \
+              --archive "$crossover_archive" \
+              --sha256 "$CROSSOVER_SOURCE_SHA256" \
+              --version 11.0
+            wine_source_args=(--crossover-source-archive "$crossover_archive")
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+            wine_source_args=(--wine-revision "${{ inputs.wine_revision }}")
+          fi
+          signing_args=(--code-sign-identity "${RUNTIME_CODE_SIGN_IDENTITY:--}")
           scripts/build-wine-runtime.sh \
             --wine-tag "$WINE_TAG" \
-            --wine-revision "${{ inputs.wine_revision }}" \
+            "${wine_source_args[@]}" \
             --dxvk-tag "$DXVK_TAG" \
             --dxvk-revision "${{ inputs.dxvk_revision }}" \
             --moltenvk-tag "$MOLTENVK_TAG" \
             --moltenvk-revision "${{ inputs.moltenvk_revision }}" \
+            --prebuilt-dxvk "$RUNNER_TEMP/dxvk-macos-preflight" \
             --runtime-id "$runtime_id" \
+            --architecture "${{ inputs.architecture }}" \
             --archive-url "https://example.invalid/$runtime_id.tar.gz" \
             --workdir "$RUNNER_TEMP/runtime-build" \
             --output "$RUNNER_TEMP/runtime-output" \
-            --jobs 3
+            --jobs 3 \
+            "${signing_args[@]}"
+      - id: runtime_metadata
+        name: Record candidate signing state
+        run: echo "runtime_signed=${RUNTIME_SIGNED:-false}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: wine-graphics-runtime-build-output
+          path: |
+            ${{ runner.temp }}/runtime-output
+            ${{ runner.temp }}/runtime-build/*.log
+          retention-days: 14
+
+  repackage:
+    if: ${{ always() && inputs.repackage_candidate && inputs.source_artifact_run_id != '' && needs.preflight.result == 'success' && (needs.graphics-preflight.result == 'success' || inputs.dxvk_artifact_run_id != '') }}
+    needs: [preflight, graphics-preflight]
+    runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: wine-graphics-runtime-build-output
+          path: ${{ runner.temp }}/source-runtime-build-output
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_artifact_run_id }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dxvk-macos-preflight
+          path: ${{ runner.temp }}/dxvk-macos-preflight
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.dxvk_artifact_run_id || github.run_id }}
+      - name: Install runtime-only dependencies
+        run: brew install libusb libx11 libxext sdl3
+      - name: Repackage candidate without rebuilding Wine
+        env:
+          WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
+        run: |
+          set -euo pipefail
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          fi
+          archive_path="$(find "$RUNNER_TEMP/source-runtime-build-output" -type f -name "$runtime_id.tar.gz" -print -quit)"
+          test -n "$archive_path"
+          scripts/repackage-wine-runtime.sh \
+            --archive "$archive_path" \
+            --workdir "$RUNNER_TEMP/runtime-repackage" \
+            --output "$RUNNER_TEMP/runtime-output" \
+            --architecture "${{ inputs.architecture }}" \
+            --dxvk-output "$RUNNER_TEMP/dxvk-macos-preflight"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wine-graphics-runtime-build-output
+          path: ${{ runner.temp }}/runtime-output
+          retention-days: 14
+
+  verify:
+    if: ${{ always() && needs.preflight.result == 'success' && (needs.build.result == 'success' || (inputs.source_artifact_run_id != '' && (!inputs.repackage_candidate || needs.repackage.result == 'success'))) }}
+    needs: [preflight, build, repackage]
+    runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
+    timeout-minutes: 30
+    outputs:
+      runtime_signed: ${{ steps.runtime_metadata.outputs.runtime_signed }}
+    env:
+      RUNTIME_SIGNED: ${{ inputs.source_artifact_run_id != '' && inputs.source_artifact_signed || needs.build.outputs.runtime_signed || 'false' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: wine-graphics-runtime-build-output
+          path: ${{ runner.temp }}/runtime-build-output
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.repackage_candidate && github.run_id || inputs.source_artifact_run_id || github.run_id }}
+      - name: Restore candidate output path
+        env:
+          WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
+          SOURCE_ARTIFACT_RUN_ID: ${{ inputs.source_artifact_run_id || github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          fi
+          archive_path="$(find "$RUNNER_TEMP/runtime-build-output" -type f -name "$runtime_id.tar.gz" -print -quit)"
+          test -n "$archive_path"
+          mkdir -p "$RUNNER_TEMP/runtime-output"
+          cp -R "$(dirname "$archive_path")/." "$RUNNER_TEMP/runtime-output/"
+          printf '%s\n' "$SOURCE_ARTIFACT_RUN_ID" > "$RUNNER_TEMP/runtime-output/source-artifact-run-id.txt"
       - name: Verify archive
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/runtime-output"
-          runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          fi
+          if [[ "$RUNTIME_SIGNED" == "true" ]]; then
+            require_developer_id=--require-developer-id
+          else
+            require_developer_id=
+          fi
           test -s "$runtime_id.tar.gz"
           expected="$(awk '{print $1}' "$runtime_id.tar.gz.sha256")"
           actual="$(openssl dgst -sha256 "$runtime_id.tar.gz" | awk '{print $NF}')"
           test "$expected" = "$actual"
-          "$GITHUB_WORKSPACE/scripts/verify-graphics-runtime.sh" \
-            --archive "$runtime_id.tar.gz" \
-            --workdir "$RUNNER_TEMP/runtime-verify"
-      - name: Smoke test Wine and WoW64
-        env:
-          WINE_TAG: ${{ inputs.wine_tag }}
+          if [[ -n "$require_developer_id" ]]; then
+            "$GITHUB_WORKSPACE/scripts/verify-graphics-runtime.sh" \
+              --archive "$runtime_id.tar.gz" \
+              --workdir "$RUNNER_TEMP/runtime-verify" \
+              --architecture "${{ inputs.architecture }}" \
+              "$require_developer_id"
+          else
+            "$GITHUB_WORKSPACE/scripts/verify-graphics-runtime.sh" \
+              --archive "$runtime_id.tar.gz" \
+              --workdir "$RUNNER_TEMP/runtime-verify" \
+              --architecture "${{ inputs.architecture }}"
+          fi
+      - name: Verify requested provenance
         run: |
           set -euo pipefail
-          runtime_id="$WINE_TAG-dxvk-moltenvk-arm64"
-          smoke_dir="$RUNNER_TEMP/runtime-smoke"
-          mkdir "$smoke_dir"
-          tar -C "$smoke_dir" -xzf "$RUNNER_TEMP/runtime-output/$runtime_id.tar.gz"
-          wine="$smoke_dir/Libraries/Wine/bin/wine64"
-          test "$("$wine" --version)" = "$WINE_TAG"
-          i686-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-win32.c" \
-            -o "$smoke_dir/smoke-win32.exe"
-          export WINEPREFIX="$smoke_dir/prefix"
-          "$wine" wineboot -u
-          "$wine" "$smoke_dir/smoke-win32.exe"
-      - name: Attest candidate artifacts
-        uses: actions/attest@v4
-        with:
-          subject-path: '${{ runner.temp }}/runtime-output/*'
+          provenance="$RUNNER_TEMP/runtime-verify/Libraries/WhiskyWineProvenance.plist"
+          test "$(plutil -extract wineTag raw "$provenance")" = '${{ inputs.wine_tag }}'
+          test "$(plutil -extract wineDistribution raw "$provenance")" = '${{ inputs.wine_distribution }}'
+          if [[ '${{ inputs.wine_distribution }}' == crossover ]]; then
+            test "$(plutil -extract wineSourceArchiveSHA256 raw "$provenance")" = "$CROSSOVER_SOURCE_SHA256"
+          else
+            test "$(plutil -extract wineRevision raw "$provenance")" = '${{ inputs.wine_revision }}'
+          fi
+          test "$(plutil -extract dxvkTag raw "$provenance")" = '${{ inputs.dxvk_tag }}'
+          test "$(plutil -extract dxvkRevision raw "$provenance")" = '${{ inputs.dxvk_revision }}'
+          expected_patch_hash="$(openssl dgst -sha256 "$GITHUB_WORKSPACE/scripts/patches/dxvk-macos-portability.patch" | awk '{print $NF}')"
+          test "$(plutil -extract dxvkPortabilityPatchSHA256 raw "$provenance")" = "$expected_patch_hash"
+          expected_mingw_patch_hash="$(openssl dgst -sha256 "$GITHUB_WORKSPACE/scripts/patches/dxvk-macos-mingw14.patch" | awk '{print $NF}')"
+          test "$(plutil -extract dxvkMingw14PatchSHA256 raw "$provenance")" = "$expected_mingw_patch_hash"
+          test "$(plutil -extract moltenVKTag raw "$provenance")" = '${{ inputs.moltenvk_tag }}'
+          test "$(plutil -extract moltenVKRevision raw "$provenance")" = '${{ inputs.moltenvk_revision }}'
+      - id: runtime_metadata
+        name: Record verified signing state
+        run: echo "runtime_signed=$RUNTIME_SIGNED" >> "$GITHUB_OUTPUT"
+      - name: Record skipped executable smoke tests
+        if: ${{ env.RUNTIME_SIGNED != 'true' && inputs.architecture == 'arm64' }}
+        run: >-
+          printf '%s\n'
+          'SKIPPED: Native arm64 execution requires a configured Developer ID Application signing certificate.'
+          > "$RUNNER_TEMP/runtime-output/executable-smoke-skipped.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: wine-graphics-runtime-candidate
           path: ${{ runner.temp }}/runtime-output
           retention-days: 14
+
+  smoke:
+    name: smoke-${{ matrix.phase }}
+    if: ${{ always() && needs.verify.result == 'success' && (needs.verify.outputs.runtime_signed == 'true' || inputs.architecture == 'x86_64') }}
+    needs: verify
+    runs-on: macos-14
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [wineboot, wow64, graphics]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Confirm Apple Silicon smoke host
+        run: |
+          test "$(uname -m)" = arm64
+          [[ '${{ inputs.architecture }}' != x86_64 ]] || arch -x86_64 /usr/bin/true
+      - uses: actions/download-artifact@v4
+        with:
+          name: wine-graphics-runtime-candidate
+          path: ${{ runner.temp }}/runtime-output
+      - name: Restore runtime
+        env:
+          WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
+        run: |
+          set -euo pipefail
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          fi
+          smoke_dir="$RUNNER_TEMP/runtime-smoke"
+          mkdir "$smoke_dir"
+          tar -C "$smoke_dir" -xzf "$RUNNER_TEMP/runtime-output/$runtime_id.tar.gz"
+          echo "SMOKE_DIR=$smoke_dir" >> "$GITHUB_ENV"
+          echo "WINE=$smoke_dir/Libraries/Wine/bin/wine64" >> "$GITHUB_ENV"
+          echo "WINEPREFIX=$smoke_dir/prefix" >> "$GITHUB_ENV"
+          echo "VK_DRIVER_FILES=$smoke_dir/Libraries/Vulkan/MoltenVK_icd.json" >> "$GITHUB_ENV"
+          echo "DYLD_FALLBACK_LIBRARY_PATH=$smoke_dir/Libraries/Vulkan:$smoke_dir/Libraries/Wine/lib" >> "$GITHUB_ENV"
+      - name: Verify Wine version
+        env:
+          WINE_TAG: ${{ inputs.wine_tag }}
+        run: |
+          wine_arch=(env)
+          [[ '${{ inputs.architecture }}' != x86_64 ]] || wine_arch=(arch -x86_64)
+          test "$("${wine_arch[@]}" "$WINE" --version)" = "$WINE_TAG"
+      - id: metal
+        name: Detect Metal device
+        if: ${{ matrix.phase == 'graphics' }}
+        run: |
+          if xcrun swift -e 'import Metal; if MTLCreateSystemDefaultDevice() == nil { exit(1) }'; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'Metal device available.' | tee "$RUNNER_TEMP/metal-smoke.log"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'SKIPPED: This runner exposes no Metal device.' | tee "$RUNNER_TEMP/metal-smoke.log"
+          fi
+      - name: Install Windows smoke compiler
+        if: ${{ matrix.phase == 'wow64' || (matrix.phase == 'graphics' && steps.metal.outputs.available == 'true') }}
+        run: brew install mingw-w64
+      - name: Install Vulkan headers
+        if: ${{ matrix.phase == 'graphics' && steps.metal.outputs.available == 'true' }}
+        run: brew install vulkan-headers
+      - name: Record unavailable graphics smoke test
+        if: ${{ matrix.phase == 'graphics' && steps.metal.outputs.available != 'true' }}
+        run: >-
+          echo 'SKIPPED: Vulkan and D3D11 require a runner with a Metal device.'
+          > "$RUNNER_TEMP/graphics-smoke.log"
+      - name: Smoke test Wine bootstrap
+        if: ${{ matrix.phase == 'wineboot' }}
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/wineboot-smoke.log"
+          wine_arch=(env)
+          [[ '${{ inputs.architecture }}' != x86_64 ]] || wine_arch=(arch -x86_64)
+          WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot.exe -u 2>&1 | tee "$log"
+          if grep -Eq 'invalid \.so library|NSInternalInconsistencyException|libc\+\+abi: terminating|process_send_command receiving command result timed out' "$log"; then
+            echo 'wineboot returned success after an invalid runtime load, native service crash, or timeout.' >&2
+            exit 1
+          fi
+      - name: Smoke test WoW64
+        if: ${{ matrix.phase == 'wow64' }}
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          wine_arch=(env)
+          [[ '${{ inputs.architecture }}' != x86_64 ]] || wine_arch=(arch -x86_64)
+          i686-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-win32.c" \
+            -o "$SMOKE_DIR/smoke-win32.exe"
+          {
+            WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot.exe -u
+            "${wine_arch[@]}" "$WINE" "$SMOKE_DIR/smoke-win32.exe"
+          } 2>&1 | tee "$RUNNER_TEMP/wow64-smoke.log"
+      - name: Smoke test native Vulkan and MoltenVK
+        if: ${{ matrix.phase == 'graphics' && steps.metal.outputs.available == 'true' }}
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          vulkan_dir="$SMOKE_DIR/Libraries/Vulkan"
+          clang "$GITHUB_WORKSPACE/scripts/fixtures/smoke-vulkan.c" \
+            -arch "${{ inputs.architecture }}" \
+            -I"$(brew --prefix vulkan-headers)/include" \
+            "$vulkan_dir/libvulkan.1.dylib" \
+            -Wl,-rpath,"$vulkan_dir" \
+            -o "$SMOKE_DIR/smoke-vulkan"
+          vulkan_arch=(env)
+          [[ '${{ inputs.architecture }}' != x86_64 ]] || vulkan_arch=(arch -x86_64)
+          MVK_CONFIG_DEBUG=1 MVK_CONFIG_LOG_LEVEL=4 MVK_CONFIG_TRACE_VULKAN_CALLS=1 \
+            VK_LOADER_DEBUG=error,warn,driver "${vulkan_arch[@]}" "$SMOKE_DIR/smoke-vulkan" \
+            2>&1 | tee "$RUNNER_TEMP/vulkan-smoke.log"
+      - name: Smoke test DXVK D3D11
+        if: ${{ matrix.phase == 'graphics' && steps.metal.outputs.available == 'true' }}
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          wine_arch=(env)
+          [[ '${{ inputs.architecture }}' != x86_64 ]] || wine_arch=(arch -x86_64)
+          x86_64-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-d3d11.c" \
+            -o "$SMOKE_DIR/smoke-d3d11.exe" -ld3d11 -ldxgi
+          {
+            WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot.exe -u
+            cp "$SMOKE_DIR/Libraries/DXVK/x64/"*.dll "$WINEPREFIX/drive_c/windows/system32/"
+            WINEDEBUG=-all DXVK_LOG_LEVEL=info DXVK_LOG_PATH=none DXVK_STATE_CACHE=0 \
+              VK_LOADER_DEBUG=error,warn,driver WINEDLLOVERRIDES="d3d11,dxgi=n,b" \
+              "${wine_arch[@]}" "$WINE" "$SMOKE_DIR/smoke-d3d11.exe"
+          } 2>&1 | tee "$RUNNER_TEMP/d3d11-smoke.log"
+          grep -F 'DXVK: v1.10.3' "$RUNNER_TEMP/d3d11-smoke.log"
+          grep -F 'VK_KHR_portability_enumeration' "$RUNNER_TEMP/d3d11-smoke.log"
+          grep -F 'D3D11CoreCreateDevice: Using feature level D3D_FEATURE_LEVEL_11_0' "$RUNNER_TEMP/d3d11-smoke.log"
+          grep -E 'Using ".+" with driver: ".*/libMoltenVK\.dylib"' "$RUNNER_TEMP/d3d11-smoke.log"
+      - name: Collect graphics crash reports
+        if: ${{ always() && matrix.phase == 'graphics' }}
+        run: |
+          for directory in "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports; do
+            [[ -d "$directory" ]] || continue
+            find "$directory" -type f \( -name 'smoke-vulkan*.ips' -o -name 'smoke-vulkan*.crash' \) \
+              -exec cp {} "$RUNNER_TEMP/" \; 2>/dev/null || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: runtime-smoke-${{ matrix.phase }}
+          path: |
+            ${{ runner.temp }}/*-smoke.log
+            ${{ runner.temp }}/smoke-vulkan*.ips
+            ${{ runner.temp }}/smoke-vulkan*.crash
+          retention-days: 14
+
+  attest:
+    if: ${{ always() && needs.verify.result == 'success' && (needs.smoke.result == 'success' || (needs.smoke.result == 'skipped' && inputs.architecture == 'arm64' && needs.verify.outputs.runtime_signed != 'true')) }}
+    needs: [verify, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wine-graphics-runtime-candidate
+          path: ${{ runner.temp }}/runtime-output
+      - name: Attest candidate artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: '${{ runner.temp }}/runtime-output/*'

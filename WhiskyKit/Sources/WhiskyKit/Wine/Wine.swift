@@ -25,7 +25,7 @@ public class Wine {
     public static func wineBinary(for bottle: Bottle) -> URL {
         WhiskyWineInstaller.binFolder(for: runtimeID(for: bottle)).appending(path: "wine64")
     }
-    private static func runtimeID(for bottle: Bottle?) -> String {
+    static func runtimeID(for bottle: Bottle?) -> String {
         if let bottle {
             return WhiskyWineInstaller.resolvedRuntimeID(bottle.settings.runtimeID)
         }
@@ -103,9 +103,7 @@ public class Wine {
     public static func runProgram(
         at url: URL, args: [String] = [], bottle: Bottle, environment: [String: String] = [:]
     ) async throws {
-        if bottle.settings.dxvk && WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) {
-            try enableDXVK(bottle: bottle)
-        }
+        try prepareGraphicsBackend(for: bottle)
         for await _ in try Self.runWineProcess(
             name: url.lastPathComponent,
             args: ["start", "/unix", url.path(percentEncoded: false)] + args,
@@ -129,11 +127,11 @@ public class Wine {
         export PATH=\"\(WhiskyWineInstaller.binFolder(for: runtimeID(for: bottle)).path):$PATH\"
         export WINE=\"wine64\"
         alias wine=\"wine64\"
-        alias winecfg=\"wine64 winecfg\"
+        alias winecfg=\"wine64 winecfg.exe\"
         alias msiexec=\"wine64 msiexec\"
         alias regedit=\"wine64 regedit\"
         alias regsvr32=\"wine64 regsvr32\"
-        alias wineboot=\"wine64 wineboot\"
+        alias wineboot=\"wine64 wineboot.exe\"
         alias wineconsole=\"wine64 wineconsole\"
         alias winedbg=\"wine64 winedbg\"
         alias winefile=\"wine64 winefile\"
@@ -152,6 +150,7 @@ public class Wine {
         _ args: [String], bottle: Bottle?, environment: [String: String] = [:]
     ) async throws -> String {
         var result: [String] = []
+        var didTerminate = false
         let fileHandle = try makeFileHandle()
         fileHandle.writeApplicaitonInfo()
         var environment = environment
@@ -163,12 +162,18 @@ public class Wine {
             args: args, environment: environment, fileHandle: fileHandle, bottle: bottle
         ) {
             switch output {
-            case .started, .terminated:
+            case .started:
                 break
+            case .terminated(let process):
+                didTerminate = true
+                guard process.terminationStatus == 0 else {
+                    throw WineProcessError.terminated(process.terminationStatus)
+                }
             case .message(let message), .error(let message):
                 result.append(message)
             }
         }
+        guard didTerminate else { throw WineProcessError.commandDidNotTerminate }
         return result.joined()
     }
 
@@ -195,20 +200,6 @@ public class Wine {
         }
     }
 
-    public static func enableDXVK(bottle: Bottle) throws {
-        guard WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) else { return }
-        try FileManager.default.replaceDLLs(
-            in: bottle.url.appending(path: "drive_c").appending(path: "windows").appending(path: "system32"),
-            withContentsIn: WhiskyWineInstaller.libraryFolder(for: runtimeID(for: bottle))
-                .appending(path: "DXVK").appending(path: "x64")
-        )
-        try FileManager.default.replaceDLLs(
-            in: bottle.url.appending(path: "drive_c").appending(path: "windows").appending(path: "syswow64"),
-            withContentsIn: WhiskyWineInstaller.libraryFolder(for: runtimeID(for: bottle))
-                .appending(path: "DXVK").appending(path: "x32")
-        )
-    }
-
     /// Construct an environment merging the bottle values with the given values
     private static func constructWineEnvironment(
         for bottle: Bottle, environment: [String: String] = [:]
@@ -219,14 +210,27 @@ public class Wine {
             "GST_DEBUG": "1"
         ]
         bottle.settings.environmentVariables(wineEnv: &result)
-        result.merge(environment, uniquingKeysWith: { $1 })
-        if !WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) {
+        if bottle.settings.usesDXVK && !WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) {
             result.removeValue(forKey: "WINEDLLOVERRIDES")
             result.removeValue(forKey: "DXVK_ASYNC")
             result.removeValue(forKey: "DXVK_HUD")
         }
+        result.merge(environment, uniquingKeysWith: { $1 })
+        configureRuntimeLibraryEnvironment(for: bottle, wineEnv: &result)
         configureVulkanEnvironment(for: bottle, wineEnv: &result)
         return result
+    }
+
+    private static func configureRuntimeLibraryEnvironment(for bottle: Bottle, wineEnv: inout [String: String]) {
+        let wineLibraryFolder = WhiskyWineInstaller.libraryFolder(for: runtimeID(for: bottle))
+            .appending(path: "Wine/lib")
+        guard FileManager.default.fileExists(atPath: wineLibraryFolder.path) else { return }
+
+        if let fallback = wineEnv["DYLD_FALLBACK_LIBRARY_PATH"], !fallback.isEmpty {
+            wineEnv["DYLD_FALLBACK_LIBRARY_PATH"] = "\(wineLibraryFolder.path):\(fallback)"
+        } else {
+            wineEnv["DYLD_FALLBACK_LIBRARY_PATH"] = wineLibraryFolder.path
+        }
     }
 
     private static func configureVulkanEnvironment(for bottle: Bottle, wineEnv: inout [String: String]) {
@@ -234,6 +238,7 @@ public class Wine {
         let icd = vulkanFolder.appending(path: "MoltenVK_icd.json")
         guard FileManager.default.fileExists(atPath: icd.path) else { return }
 
+        wineEnv["VK_DRIVER_FILES"] = icd.path
         wineEnv["VK_ICD_FILENAMES"] = icd.path
         if let fallback = wineEnv["DYLD_FALLBACK_LIBRARY_PATH"], !fallback.isEmpty {
             wineEnv["DYLD_FALLBACK_LIBRARY_PATH"] = "\(vulkanFolder.path):\(fallback)"
@@ -251,14 +256,19 @@ public class Wine {
             "WINEDEBUG": "fixme-all",
             "GST_DEBUG": "1"
         ]
-        guard !environment.isEmpty else { return result }
         result.merge(environment, uniquingKeysWith: { $1 })
+        configureRuntimeLibraryEnvironment(for: bottle, wineEnv: &result)
         return result
     }
 }
 
 enum WineInterfaceError: Error {
     case invalidResponce
+}
+
+public enum WineProcessError: Error, Equatable {
+    case terminated(Int32)
+    case commandDidNotTerminate
 }
 
 enum RegistryType: String {
@@ -304,7 +314,7 @@ extension Wine {
     }
 
     public static func winVersion(bottle: Bottle) async throws -> WinVersion {
-        let output = try await Wine.runWine(["winecfg", "-v"], bottle: bottle)
+        let output = try await Wine.runWine(["winecfg.exe", "-v"], bottle: bottle)
         let lines = output.split(whereSeparator: \.isNewline)
 
         if let lastLine = lines.last {
@@ -371,13 +381,4 @@ extension Wine {
         return try await Wine.runWine(["regedit"], bottle: bottle)
     }
 
-    @discardableResult
-    public static func cfg(bottle: Bottle) async throws -> String {
-        return try await Wine.runWine(["winecfg"], bottle: bottle)
-    }
-
-    @discardableResult
-    public static func changeWinVersion(bottle: Bottle, win: WinVersion) async throws -> String {
-        return try await Wine.runWine(["winecfg", "-v", win.rawValue], bottle: bottle)
-    }
 }

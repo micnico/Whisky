@@ -1,0 +1,4 @@
+interface:
+  display_name: "Whisky Runtime Maintenance"
+  short_description: "Maintain Whisky Wine graphics runtime safely."
+  default_prompt: "Use $whisky-runtime-maintenance to update and validate the Whisky Wine graphics runtime."

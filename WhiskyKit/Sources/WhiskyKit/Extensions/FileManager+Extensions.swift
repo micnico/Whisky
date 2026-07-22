@@ -20,20 +20,30 @@ import Foundation
 
 extension FileManager {
     func replaceDLLs(
-        in destinationDirectory: URL, withContentsIn sourceDirectory: URL, makeOriginalCopy: Bool = false
+        in destinationDirectory: URL, withContentsIn sourceDirectory: URL, makeOriginalCopy: Bool = false,
+        names: Set<String>? = nil, symbolicLinks: Bool = false
     ) throws {
         let enumerator = FileManager.default.enumerator(
             at: sourceDirectory, includingPropertiesForKeys: [.isRegularFileKey])
 
         while let fileURL = enumerator?.nextObject() as? URL {
-            guard fileURL.pathExtension == "dll" else { continue }
+            guard fileURL.pathExtension == "dll",
+                  names == nil || names?.contains(fileURL.lastPathComponent) == true else { continue }
             let originalURL = destinationDirectory.appending(path: fileURL.lastPathComponent)
-            try FileManager.default.replaceFile(at: originalURL, with: fileURL, makeOriginalCopy: makeOriginalCopy)
+            try FileManager.default.replaceFile(
+                at: originalURL, with: fileURL, makeOriginalCopy: makeOriginalCopy,
+                symbolicLink: symbolicLinks
+            )
         }
     }
 
-    func replaceFile(at originalURL: URL, with replacementURL: URL, makeOriginalCopy: Bool = true) throws {
-        if fileExists(atPath: originalURL.path(percentEncoded: false)) {
+    func replaceFile(
+        at originalURL: URL, with replacementURL: URL, makeOriginalCopy: Bool = true,
+        symbolicLink: Bool = false
+    ) throws {
+        let originalPath = originalURL.path(percentEncoded: false)
+        let isSymbolicLink = (try? destinationOfSymbolicLink(atPath: originalPath)) != nil
+        if fileExists(atPath: originalPath) || isSymbolicLink {
             if makeOriginalCopy {
                 let copyURL = originalURL.appendingPathExtension("orig")
 
@@ -46,7 +56,11 @@ extension FileManager {
                 try FileManager.default.removeItem(at: originalURL)
             }
 
-            try FileManager.default.copyItem(at: replacementURL, to: originalURL)
+            if symbolicLink {
+                try FileManager.default.createSymbolicLink(at: originalURL, withDestinationURL: replacementURL)
+            } else {
+                try FileManager.default.copyItem(at: replacementURL, to: originalURL)
+            }
         }
     }
 }

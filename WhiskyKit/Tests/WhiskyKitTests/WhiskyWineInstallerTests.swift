@@ -111,6 +111,34 @@ final class WhiskyWineInstallerTests: XCTestCase {
         XCTAssertEqual(WhiskyWineInstaller.activeRuntimeID(), "legacy")
     }
 
+    func testVersionedInstallRejectsExistingRuntimeWithoutMatchingReceipt() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let originalRoot = WhiskyWineInstaller.testingApplicationFolder
+        WhiskyWineInstaller.testingApplicationFolder = root
+        defer {
+            WhiskyWineInstaller.testingApplicationFolder = originalRoot
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let source = root.appending(path: "source")
+        let archive = root.appending(path: "wine-11.0.tar.gz")
+        try createGraphicsRuntime(at: source.appending(path: "Libraries"))
+        try archiveLibraries(at: source, to: archive)
+        let runtime = root.appending(path: "Runtimes/wine-11.0")
+        try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: source.appending(path: "Libraries"), to: runtime.appending(path: "Libraries")
+        )
+        let release = WhiskyWineRelease(
+            id: "wine-11.0", version: SemanticVersion(11, 0, 0),
+            archiveURL: try XCTUnwrap(URL(string: "https://example.com/wine-11.0.tar.gz")),
+            sha256: try checksum(of: archive)
+        )
+
+        XCTAssertThrowsError(try WhiskyWineInstaller.install(release: release, from: archive))
+        XCTAssertEqual(WhiskyWineInstaller.activeRuntimeID(), "legacy")
+    }
+
     func testVersionedInstallRejectsRuntimeWithExternalSymlink() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let originalRoot = WhiskyWineInstaller.testingApplicationFolder
@@ -141,6 +169,93 @@ final class WhiskyWineInstallerTests: XCTestCase {
 
         XCTAssertThrowsError(try WhiskyWineInstaller.install(release: release, from: archive))
         XCTAssertFalse(WhiskyWineInstaller.isRuntimeInstalled(id: release.id))
+    }
+
+    func testVersionedInstallAcceptsCompleteGraphicsRuntimeWithHashes() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let originalRoot = WhiskyWineInstaller.testingApplicationFolder
+        WhiskyWineInstaller.testingApplicationFolder = root
+        defer {
+            WhiskyWineInstaller.testingApplicationFolder = originalRoot
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let source = root.appending(path: "source")
+        let archive = root.appending(path: "wine-11.0.tar.gz")
+        try createGraphicsRuntime(at: source.appending(path: "Libraries"))
+        try archiveLibraries(at: source, to: archive)
+        let checksum = try checksum(of: archive)
+        let release = WhiskyWineRelease(
+            id: "wine-11.0", version: SemanticVersion(11, 0, 0),
+            archiveURL: try XCTUnwrap(URL(string: "https://example.com/wine-11.0.tar.gz")),
+            sha256: checksum
+        )
+
+        try WhiskyWineInstaller.install(release: release, from: archive)
+        XCTAssertTrue(WhiskyWineInstaller.isRuntimeInstalled(id: release.id))
+        XCTAssertEqual(
+            try String(contentsOf: root.appending(path: "Runtimes/wine-11.0/Archive.sha256"), encoding: .utf8),
+            checksum + "\n"
+        )
+        try WhiskyWineInstaller.install(release: release, from: archive)
+        XCTAssertEqual(WhiskyWineInstaller.activeRuntimeID(), release.id)
+    }
+
+    func testVersionedInstallRejectsGraphicsRuntimeWithInvalidHashes() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let originalRoot = WhiskyWineInstaller.testingApplicationFolder
+        WhiskyWineInstaller.testingApplicationFolder = root
+        defer {
+            WhiskyWineInstaller.testingApplicationFolder = originalRoot
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let source = root.appending(path: "source")
+        let archive = root.appending(path: "wine-11.0.tar.gz")
+        let libraries = source.appending(path: "Libraries")
+        try createGraphicsRuntime(at: libraries)
+        try Data("\(String(repeating: "0", count: 64)) Libraries/Wine/bin/wine64\n".utf8).write(
+            to: libraries.appending(path: "WhiskyWineBinaries.sha256")
+        )
+        try archiveLibraries(at: source, to: archive)
+        let release = WhiskyWineRelease(
+            id: "wine-11.0", version: SemanticVersion(11, 0, 0),
+            archiveURL: try XCTUnwrap(URL(string: "https://example.com/wine-11.0.tar.gz")),
+            sha256: try checksum(of: archive)
+        )
+
+        XCTAssertThrowsError(try WhiskyWineInstaller.install(release: release, from: archive))
+    }
+
+    private func createGraphicsRuntime(at libraries: URL) throws {
+        let files = [
+            "WhiskyWineProvenance.plist",
+            "Wine/bin/wine64",
+            "Wine/lib/libfreetype.6.dylib", "Wine/lib/libgnutls.30.dylib",
+            "Wine/lib/libSDL2-2.0.0.dylib",
+            "DXVK/x64/d3d11.dll", "DXVK/x64/dxgi.dll", "DXVK/x32/d3d11.dll", "DXVK/x32/dxgi.dll",
+            "Vulkan/MoltenVK_icd.json", "Vulkan/libMoltenVK.dylib", "Vulkan/libvulkan.1.dylib"
+        ]
+        for path in files {
+            let file = libraries.appending(path: path)
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try Data(path.utf8).write(to: file)
+        }
+        let version = libraries.appending(path: "WhiskyWineVersion.plist")
+        try PropertyListEncoder().encode(WhiskyWineVersion()).write(to: version)
+
+        let checksums = try (files + ["WhiskyWineVersion.plist"]).sorted().map { path -> String in
+            "\(try checksum(of: libraries.appending(path: path))) Libraries/\(path)"
+        }
+        try Data((checksums.joined(separator: "\n") + "\n").utf8).write(
+            to: libraries.appending(path: "WhiskyWineBinaries.sha256")
+        )
+    }
+
+    private func checksum(of file: URL) throws -> String {
+        SHA256.hash(data: try Data(contentsOf: file)).map { String(format: "%02x", $0) }.joined()
     }
 
     private func archiveLibraries(at source: URL, to archive: URL) throws {

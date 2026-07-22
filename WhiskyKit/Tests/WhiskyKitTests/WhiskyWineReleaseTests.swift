@@ -216,7 +216,10 @@ final class WhiskyWineReleaseTests: XCTestCase {
         }
 
         let runtimeID = "wine-11.0-dxvk"
-        let vulkanFolder = try createInstalledRuntime(at: root, id: runtimeID).appending(path: "Vulkan")
+        let libraries = try createInstalledRuntime(at: root, id: runtimeID)
+        let wineLibraryFolder = libraries.appending(path: "Wine/lib")
+        try FileManager.default.createDirectory(at: wineLibraryFolder, withIntermediateDirectories: true)
+        let vulkanFolder = libraries.appending(path: "Vulkan")
         try FileManager.default.createDirectory(at: vulkanFolder, withIntermediateDirectories: true)
         FileManager.default.createFile(
             atPath: vulkanFolder.appending(path: "MoltenVK_icd.json").path,
@@ -232,9 +235,14 @@ final class WhiskyWineReleaseTests: XCTestCase {
             at: root.appending(path: "game.exe"), bottle: bottle, args: "", environment: [:]
         )
         XCTAssertTrue(command.contains(
+            "VK_DRIVER_FILES=\"\(vulkanFolder.appending(path: "MoltenVK_icd.json").path)\""
+        ))
+        XCTAssertTrue(command.contains(
             "VK_ICD_FILENAMES=\"\(vulkanFolder.appending(path: "MoltenVK_icd.json").path)\""
         ))
-        XCTAssertTrue(command.contains("DYLD_FALLBACK_LIBRARY_PATH=\"\(vulkanFolder.path)\""))
+        XCTAssertTrue(command.contains(
+            "DYLD_FALLBACK_LIBRARY_PATH=\"\(vulkanFolder.path):\(wineLibraryFolder.path)\""
+        ))
     }
 
     func testDXVKSupportRequiresBothArchitectures() throws {
@@ -261,13 +269,14 @@ final class WhiskyWineReleaseTests: XCTestCase {
         XCTAssertTrue(WhiskyWineInstaller.supportsDXVK(id: runtimeID))
     }
 
-    func testDXVKAsyncIsDisabledWithDXVK() {
+    func testDXVKAsyncRequiresExplicitOptIn() {
         var settings = BottleSettings()
         var environment: [String: String] = [:]
+        settings.dxvk = true
         settings.environmentVariables(wineEnv: &environment)
         XCTAssertNil(environment["DXVK_ASYNC"])
 
-        settings.dxvk = true
+        settings.dxvkAsync = true
         settings.environmentVariables(wineEnv: &environment)
         XCTAssertEqual(environment["DXVK_ASYNC"], "1")
     }
@@ -291,7 +300,10 @@ final class WhiskyWineReleaseTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: destinationDLL), Data("new".utf8))
     }
 
-    private func archiveLibraries(at source: URL, to archive: URL) throws {
+}
+
+private extension WhiskyWineReleaseTests {
+    func archiveLibraries(at source: URL, to archive: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         process.arguments = ["-C", source.path, "-zcf", archive.path, "Libraries"]
@@ -300,7 +312,7 @@ final class WhiskyWineReleaseTests: XCTestCase {
         XCTAssertEqual(process.terminationStatus, 0)
     }
 
-    private func createInstalledRuntime(at root: URL, id: String) throws -> URL {
+    func createInstalledRuntime(at root: URL, id: String) throws -> URL {
         let libraries = root.appending(path: "Runtimes/\(id)/Libraries")
         let wine = libraries.appending(path: "Wine/bin/wine64")
         try FileManager.default.createDirectory(at: wine.deletingLastPathComponent(), withIntermediateDirectories: true)

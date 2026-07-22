@@ -1,44 +1,50 @@
-# Wine 11 DXVK + MoltenVK candidate validation
+# Wine 11 DXVK-macOS + MoltenVK candidate validation
 
-This is an unpublished, locally built candidate. It is not a public runtime release and contains no Apple Game Porting Toolkit or D3DMetal binaries.
+This is an unpublished engineering candidate. It contains no Apple Game Porting Toolkit or D3DMetal binaries and must not change an existing Bottle during validation.
 
 ## Immutable inputs
 
 | Component | Source | Revision | License |
 | --- | --- | --- | --- |
 | Wine | https://gitlab.winehq.org/wine/wine.git | `wine-11.0` / `db11d0fe6a169c457e23d007e20404643d067aa8` | LGPL-2.1-or-later |
-| DXVK | https://github.com/doitsujin/dxvk | `v3.0.1` / `c850747f1df24180ce97b7a9094603f39da1251d` | zlib |
+| DXVK-macOS | https://github.com/Gcenx/DXVK-macOS | `v1.10.3-20230507-repack` / `8f1e28deed3ad30802f7e1bdff428ec14e6e7817` | zlib |
 | MoltenVK | https://github.com/KhronosGroup/MoltenVK | `v1.4.1` / `db445ff2042d9ce348c439ad8451112f354b8d2a` | Apache-2.0 |
-| Vulkan Loader | https://github.com/KhronosGroup/Vulkan-Loader | Homebrew `1.4.350.1` | Apache-2.0 |
+| Vulkan Loader | https://github.com/KhronosGroup/Vulkan-Loader | version recorded from the build host | Apache-2.0 |
 
-The package layout is `Libraries/Wine`, `Libraries/DXVK/{x64,x32}`, and `Libraries/Vulkan`. `MoltenVK_icd.json` selects the bundled `libMoltenVK.dylib`; Bottle DXVK mode sets that JSON in `VK_ICD_FILENAMES` and prepends the Vulkan folder to `DYLD_FALLBACK_LIBRARY_PATH`.
+DXVK-macOS remains on its macOS-compatible 1.10.3 line intentionally. Upstream DXVK 3.0.1 requires Vulkan features that MoltenVK does not expose and is not a valid upgrade for this backend.
 
-## Candidate artifact
+Two source patches are part of the pinned input and their hashes are recorded in `WhiskyWineProvenance.plist`:
 
-The locally generated archive is named `wine-11.0-dxvk-moltenvk-arm64-r1.tar.gz`.
+| Patch | SHA-256 | Purpose |
+| --- | --- | --- |
+| `dxvk-macos-portability.patch` | `fc8f465e1ca3f04caea68f4ae7707f67b60b81dc98462d1b9a1917d818930a27` | Enables `VK_KHR_portability_enumeration` and its instance-create flag when the loader exposes it |
+| `dxvk-macos-mingw14.patch` | `cce5b3a3494f7401786958250abe57f3f11756aeef416e32182fa3637518dee3` | Uses DXVK's namespace for a definition now supplied by current MinGW headers |
+
+The MoltenVK manifest must retain `ICD.is_portability_driver=true`. Removing that declaration to bypass Vulkan Loader filtering is not an accepted compatibility mechanism.
+
+## Pipeline contract
+
+`Build Graphics Runtime Candidate` separates the work into these gates:
+
+1. `preflight` validates all immutable tags and, before a Wine build, proves the Wine loader paths and bundleable dependencies.
+2. `graphics-preflight` builds both DXVK-macOS PE architectures, applies the pinned patches, verifies their hashes, and uploads a reusable component artifact. It can run with `build_candidate=false`.
+3. `repackage` can combine that component artifact with an existing Wine 11 archive and repair its Homebrew dependency closure without rebuilding Wine.
+4. `verify` rejects host Homebrew references, unresolved `@loader_path` entries, an unmarked MoltenVK portability driver, incorrect provenance, missing hashes, or DXVK binaries without the portability extension.
+5. The three independent smoke jobs run Wine bootstrap, a 32-bit WoW64 executable, and the graphics chain. The x86_64 graphics candidate runs on an Apple-silicon host through Rosetta.
+6. `attest` cannot run until all applicable smoke jobs pass.
+
+The graphics smoke is not satisfied by process exit alone. Its log must show DXVK 1.10.3, `VK_KHR_portability_enumeration`, D3D feature level 11_0, and the Vulkan Loader selecting the bundled `libMoltenVK.dylib`.
+
+## Current evidence
+
+On 2026-07-20, run [`29753990552`](https://github.com/micnico/Whisky/actions/runs/29753990552) built and verified the pinned DXVK-macOS x64/x32 component, skipped the full Wine build, repackaged source artifact run `29747213847`, verified the complete archive and provenance, and passed Wineboot, WoW64, and attestation. The runtime archive SHA-256 is `ccec9f0717135b8405674b0a8e5408d3f9b2b8283f48d0c0c07319045e3d9c9e`; the GitHub candidate artifact digest is `sha256:04ca01fbbb62889a34651a562da359b6b93275186c7b70c2721475f0f7401545`.
+
+The hosted Apple-silicon runner exposed no Metal device, so its graphics job correctly recorded `SKIPPED`. The exact candidate was then downloaded and tested with the repository verifier in three new temporary prefixes on an Apple M4. The `D3D11CreateDevice` fixture completed successfully through:
 
 ```text
-SHA-256: 0d57462da9be6e44df48a670bf2dd398c9b67c1d650d0c7c4a5846f02aac24a0
+D3D11 -> DXVK-macOS 1.10.3 -> WineVulkan -> bundled Vulkan Loader -> MoltenVK 1.4.1 -> Apple M4
 ```
 
-It contains `WhiskyWineVersion.plist`, `WhiskyWineProvenance.plist`, and `WhiskyWineBinaries.sha256`. The latter has 2,640 entries and was regenerated after extraction; the regenerated file compared byte-for-byte with the archive's copy.
+The log recorded DXVK-macOS 1.10.3, the portability extension, Apple M4 device selection, D3D feature level 11_0, Vulkan device creation, the bundled `libMoltenVK.dylib`, and clean device destruction. Static verification rejected host Homebrew references and unresolved loader paths. Wineboot emitted neither the FreeType nor GnuTLS missing-library diagnostics. The test did not read or modify a Whisky Bottle.
 
-## Smoke results
-
-All checks were performed on Apple Silicon using a clean temporary 64-bit Bottle prefix and the archive contents.
-
-| Workload | Architecture | Result |
-| --- | --- | --- |
-| `vkCreateInstance` + physical-device enumeration | ARM64 | passed |
-| `D3D11CreateDevice` with `WINEDLLOVERRIDES=d3d11,dxgi=n` | x64 | passed |
-| `D3D11CreateDevice` with `WINEDLLOVERRIDES=d3d11,dxgi=n` | x86 | passed |
-| `D3D12CreateDevice` via Wine 11's built-in D3D12 path | x64 | passed |
-| Start an x64 program in the same prefix with the plain Wine 11 runtime | x64 | passed |
-
-The DXVK tests use native-only overrides, so success cannot be attributed to WineD3D fallback. The D3D12 result is Wine's built-in path, not DXVK, GPTK, or a claim of broad game compatibility.
-
-## Remaining release work
-
-`Build Graphics Runtime Candidate` is a manual Apple Silicon GitHub Actions workflow. It rebuilds the fixed tags and invokes `verify-graphics-runtime.sh`, which validates the provenance plist, required Wine/DXVK/MoltenVK files, code signatures, architectures, and the complete SHA-256 file list. It then starts the extracted Wine binary and a freshly compiled 32-bit Windows executable in a clean prefix. GitHub signs a provenance attestation for the archive, digest, and client manifest before the workflow retains them as a 14-day artifact. The workflow does not publish a release or make the candidate available to users.
-
-Before publishing this candidate, run the graphics workload suite from CI, host the archive and signed manifest through the release channel, and repeat the rollback smoke test through the actual Bottle migration UI. Keep it opt-in until real application compatibility data is recorded.
+The no-rebuild gates are complete for this provenance-linked candidate, and [attestation 36183615](https://github.com/micnico/Whisky/attestations/36183615) covers its three published subjects. A new full Wine build is not required for the runtime-only dependency and DXVK repair. Application integration and the initial real-GUI matrix are recorded in `wine-11-x86-runtime-verification.md`; they keep this archive as an explicit engineering candidate. It remains unpublished and non-default until the documented D3D12, launcher, legacy-Bottle rollback, compatibility, and distribution-signing gates are complete.
