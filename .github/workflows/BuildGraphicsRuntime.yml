@@ -64,6 +64,11 @@ on:
         required: true
         default: false
         type: boolean
+      dxvk_artifact_run_id:
+        description: Existing run ID containing a verified dxvk-macos-preflight artifact
+        required: false
+        default: ''
+        type: string
       repackage_candidate:
         description: Repair runtime-only dependencies in an existing artifact without rebuilding Wine
         required: true
@@ -103,14 +108,16 @@ jobs:
           build_candidate='${{ inputs.build_candidate }}'
           configure_preflight='${{ inputs.configure_preflight }}'
           graphics_preflight='${{ inputs.graphics_preflight }}'
+          dxvk_run_id='${{ inputs.dxvk_artifact_run_id }}'
           repackage_candidate='${{ inputs.repackage_candidate }}'
           source_run_id='${{ inputs.source_artifact_run_id }}'
           source_signed='${{ inputs.source_artifact_signed }}'
           wine_distribution='${{ inputs.wine_distribution }}'
           [[ "$build_candidate" != true || "$repackage_candidate" != true ]]
           [[ "$configure_preflight" != true || "$repackage_candidate" != true ]]
+          [[ -z "$dxvk_run_id" || "$graphics_preflight" != true ]]
           [[ "$build_candidate" != true || -z "$source_run_id" ]]
-          [[ "$repackage_candidate" != true || "$graphics_preflight" == true ]]
+          [[ "$repackage_candidate" != true || "$graphics_preflight" == true || -n "$dxvk_run_id" ]]
           [[ "$repackage_candidate" != true || -n "$source_run_id" ]]
           [[ "$repackage_candidate" != true || "$source_signed" != true ]]
           if [[ "$wine_distribution" == crossover ]]; then
@@ -131,7 +138,9 @@ jobs:
             [[ '${{ inputs.wine_revision }}' =~ ^[0-9a-f]{40}$ ]]
           fi
           source_run_id='${{ inputs.source_artifact_run_id }}'
+          dxvk_run_id='${{ inputs.dxvk_artifact_run_id }}'
           [[ -z "$source_run_id" || "$source_run_id" =~ ^[0-9]+$ ]]
+          [[ -z "$dxvk_run_id" || "$dxvk_run_id" =~ ^[0-9]+$ ]]
           verify_tag_revision() {
             local source="$1" tag="$2" expected="$3" actual
             actual="$(git ls-remote "$source" "refs/tags/$tag^{}" | awk 'NR == 1 { print $1 }')"
@@ -189,7 +198,7 @@ jobs:
             --compile-win32u \
             "${winemac_args[@]}"
   graphics-preflight:
-    if: ${{ inputs.graphics_preflight || inputs.build_candidate }}
+    if: ${{ (inputs.graphics_preflight || inputs.build_candidate) && inputs.dxvk_artifact_run_id == '' }}
     needs: preflight
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 30
@@ -215,7 +224,7 @@ jobs:
           retention-days: 14
 
   build:
-    if: ${{ inputs.build_candidate && inputs.source_artifact_run_id == '' }}
+    if: ${{ always() && inputs.build_candidate && inputs.source_artifact_run_id == '' && needs.preflight.result == 'success' && (needs.graphics-preflight.result == 'success' || inputs.dxvk_artifact_run_id != '') }}
     needs: [preflight, graphics-preflight]
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 180
@@ -227,6 +236,8 @@ jobs:
         with:
           name: dxvk-macos-preflight
           path: ${{ runner.temp }}/dxvk-macos-preflight
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.dxvk_artifact_run_id || github.run_id }}
       - name: Confirm requested runner architecture
         run: test "$(uname -m)" = "${{ inputs.architecture }}"
       - name: Prepare optional Developer ID signing
@@ -308,7 +319,7 @@ jobs:
           retention-days: 14
 
   repackage:
-    if: ${{ inputs.repackage_candidate && inputs.source_artifact_run_id != '' }}
+    if: ${{ always() && inputs.repackage_candidate && inputs.source_artifact_run_id != '' && needs.preflight.result == 'success' && (needs.graphics-preflight.result == 'success' || inputs.dxvk_artifact_run_id != '') }}
     needs: [preflight, graphics-preflight]
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 30
@@ -324,6 +335,8 @@ jobs:
         with:
           name: dxvk-macos-preflight
           path: ${{ runner.temp }}/dxvk-macos-preflight
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.dxvk_artifact_run_id || github.run_id }}
       - name: Install runtime-only dependencies
         run: brew install libusb libx11 libxext sdl3
       - name: Repackage candidate without rebuilding Wine
