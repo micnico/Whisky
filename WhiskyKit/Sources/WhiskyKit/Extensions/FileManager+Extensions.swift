@@ -20,13 +20,15 @@ import Foundation
 
 extension FileManager {
     func replaceDLLs(
-        in destinationDirectory: URL, withContentsIn sourceDirectory: URL, makeOriginalCopy: Bool = false
+        in destinationDirectory: URL, withContentsIn sourceDirectory: URL, makeOriginalCopy: Bool = false,
+        names: Set<String>? = nil
     ) throws {
         let enumerator = FileManager.default.enumerator(
             at: sourceDirectory, includingPropertiesForKeys: [.isRegularFileKey])
 
         while let fileURL = enumerator?.nextObject() as? URL {
-            guard fileURL.pathExtension == "dll" else { continue }
+            guard fileURL.pathExtension == "dll",
+                  names == nil || names?.contains(fileURL.lastPathComponent) == true else { continue }
             let originalURL = destinationDirectory.appending(path: fileURL.lastPathComponent)
             try FileManager.default.replaceFile(at: originalURL, with: fileURL, makeOriginalCopy: makeOriginalCopy)
         }

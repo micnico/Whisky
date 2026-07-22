@@ -25,7 +25,7 @@ public class Wine {
     public static func wineBinary(for bottle: Bottle) -> URL {
         WhiskyWineInstaller.binFolder(for: runtimeID(for: bottle)).appending(path: "wine64")
     }
-    private static func runtimeID(for bottle: Bottle?) -> String {
+    static func runtimeID(for bottle: Bottle?) -> String {
         if let bottle {
             return WhiskyWineInstaller.resolvedRuntimeID(bottle.settings.runtimeID)
         }
@@ -103,9 +103,7 @@ public class Wine {
     public static func runProgram(
         at url: URL, args: [String] = [], bottle: Bottle, environment: [String: String] = [:]
     ) async throws {
-        if bottle.settings.dxvk && WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) {
-            try enableDXVK(bottle: bottle)
-        }
+        try prepareGraphicsBackend(for: bottle)
         for await _ in try Self.runWineProcess(
             name: url.lastPathComponent,
             args: ["start", "/unix", url.path(percentEncoded: false)] + args,
@@ -202,20 +200,6 @@ public class Wine {
         }
     }
 
-    public static func enableDXVK(bottle: Bottle) throws {
-        guard WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) else { return }
-        try FileManager.default.replaceDLLs(
-            in: bottle.url.appending(path: "drive_c").appending(path: "windows").appending(path: "system32"),
-            withContentsIn: WhiskyWineInstaller.libraryFolder(for: runtimeID(for: bottle))
-                .appending(path: "DXVK").appending(path: "x64")
-        )
-        try FileManager.default.replaceDLLs(
-            in: bottle.url.appending(path: "drive_c").appending(path: "windows").appending(path: "syswow64"),
-            withContentsIn: WhiskyWineInstaller.libraryFolder(for: runtimeID(for: bottle))
-                .appending(path: "DXVK").appending(path: "x32")
-        )
-    }
-
     /// Construct an environment merging the bottle values with the given values
     private static func constructWineEnvironment(
         for bottle: Bottle, environment: [String: String] = [:]
@@ -226,7 +210,7 @@ public class Wine {
             "GST_DEBUG": "1"
         ]
         bottle.settings.environmentVariables(wineEnv: &result)
-        if !WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) {
+        if bottle.settings.usesDXVK && !WhiskyWineInstaller.supportsDXVK(id: runtimeID(for: bottle)) {
             result.removeValue(forKey: "WINEDLLOVERRIDES")
             result.removeValue(forKey: "DXVK_ASYNC")
             result.removeValue(forKey: "DXVK_HUD")

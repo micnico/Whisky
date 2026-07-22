@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000002 /* GraphicsBackendSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000001 /* GraphicsBackendSettingsView.swift */; };
 		6330DD962B1B0EA4007A625A /* RenameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6330DD952B1B0EA4007A625A /* RenameView.swift */; };
 		6365C4C12B1AA69D00AAE1FD /* Animation+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6365C4C02B1AA69D00AAE1FD /* Animation+Extensions.swift */; };
 		6365C4C32B1AA8CD00AAE1FD /* BottleListEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6365C4C22B1AA8CD00AAE1FD /* BottleListEntry.swift */; };
@@ -110,6 +111,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A10000000000000000000001 /* GraphicsBackendSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphicsBackendSettingsView.swift; sourceTree = "<group>"; };
 		6330DD952B1B0EA4007A625A /* RenameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenameView.swift; sourceTree = "<group>"; };
 		6365C4C02B1AA69D00AAE1FD /* Animation+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Animation+Extensions.swift"; sourceTree = "<group>"; };
 		6365C4C22B1AA8CD00AAE1FD /* BottleListEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleListEntry.swift; sourceTree = "<group>"; };
@@ -254,6 +256,7 @@
 				6365C4C22B1AA8CD00AAE1FD /* BottleListEntry.swift */,
 				6E50D98429CDF25B008C39F6 /* BottleCreationView.swift */,
 				6E355E5729D78249002D83BE /* ConfigView.swift */,
+				A10000000000000000000001 /* GraphicsBackendSettingsView.swift */,
 				6E182FC92B0BF64E00AADE81 /* WinetricksView.swift */,
 				AB0BCABC2B61036E00E21C31 /* RunningProcessesView.swift */,
 				6E17B6422AF3FD6E00831173 /* Pins */,
@@ -596,6 +599,7 @@
 				DB696FC82AFAE5DA0037EB2F /* PinCreationView.swift in Sources */,
 				6E7C07BE2AAE7B0100F6E66B /* ProgramShortcut.swift in Sources */,
 				6E355E5829D78249002D83BE /* ConfigView.swift in Sources */,
+				A10000000000000000000002 /* GraphicsBackendSettingsView.swift in Sources */,
 				63FFDE862ADF0C7700178665 /* BottomBar.swift in Sources */,
 				6E6C0CF62A419A8300356232 /* WhiskyWineDownloadView.swift in Sources */,
 				6365C4C32B1AA8CD00AAE1FD /* BottleListEntry.swift in Sources */,
