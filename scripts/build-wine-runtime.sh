@@ -5,6 +5,8 @@
 set -euo pipefail
 
 readonly WINE_SOURCE=https://gitlab.winehq.org/wine/wine.git
+readonly CROSSOVER_WINE_SOURCE=https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz
+readonly CROSSOVER_WINE_SOURCE_SHA256=ac99c8ca4b3848f3e81784135f023df266b61c2345726ea55a50b3e030dd6872
 readonly DXVK_SOURCE=https://github.com/Gcenx/DXVK-macOS.git
 readonly MOLTENVK_SOURCE=https://github.com/KhronosGroup/MoltenVK.git
 readonly SCRIPT_NAME="${0:t}"
@@ -18,6 +20,7 @@ usage() {
     print "  --runtime-id ID    Runtime identifier (default: wine-X.Y-ARCH)"
     print "  --architecture ARCH Build architecture: arm64 or x86_64 (default: arm64)"
     print "  --wine-revision SHA Verify the checked-out Wine revision"
+    print "  --crossover-source-archive FILE Use a verified CrossOver FOSS Wine source bundle"
     print "  --dxvk-tag TAG     Build DXVK from source (requires --moltenvk-tag)"
     print "  --dxvk-revision SHA Verify the checked-out DXVK revision"
     print "  --moltenvk-tag TAG Build MoltenVK from source (requires --dxvk-tag)"
@@ -29,6 +32,7 @@ usage() {
 
 wine_tag=""
 wine_revision=""
+crossover_source_archive=""
 archive_url=""
 output_dir="$PWD/build/runtime"
 work_dir=""
@@ -46,6 +50,7 @@ while (( $# )); do
     case "$1" in
         --wine-tag) wine_tag="$2"; shift 2 ;;
         --wine-revision) wine_revision="$2"; shift 2 ;;
+        --crossover-source-archive) crossover_source_archive="$2"; shift 2 ;;
         --archive-url) archive_url="$2"; shift 2 ;;
         --output) output_dir="$2"; shift 2 ;;
         --workdir) work_dir="$2"; shift 2 ;;
@@ -75,6 +80,21 @@ fi
 if [[ "$architecture" != "arm64" && "$architecture" != "x86_64" ]]; then
     print -u2 -- "--architecture must be arm64 or x86_64."
     exit 2
+fi
+wine_source="$WINE_SOURCE"
+wine_distribution=winehq
+if [[ -n "$crossover_source_archive" ]]; then
+    if [[ ! -f "$crossover_source_archive" ]]; then
+        print -u2 -- "--crossover-source-archive must name the pinned CrossOver 26.3 source bundle."
+        exit 2
+    fi
+    if [[ -n "$wine_revision" ]]; then
+        print -u2 -- "--wine-revision cannot be combined with a CrossOver source archive."
+        exit 2
+    fi
+    crossover_source_archive="${crossover_source_archive:A}"
+    wine_source="$CROSSOVER_WINE_SOURCE"
+    wine_distribution=crossover
 fi
 if [[ "$(uname -m)" != "$architecture" ]]; then
     print -u2 -- "Build this runtime with: arch -$architecture $SCRIPT_NAME ..."
@@ -197,8 +217,18 @@ for artifact in "$archive" "$archive.sha256" "$manifest"; do
         exit 1
     fi
 done
-print "Cloning Wine $wine_tag"
-git clone --quiet --depth 1 --branch "$wine_tag" "$WINE_SOURCE" "$source_dir"
+if [[ -n "$crossover_source_archive" ]]; then
+    "${0:A:h}/verify-crossover-wine-source.sh" \
+        --archive "$crossover_source_archive" \
+        --sha256 "$CROSSOVER_WINE_SOURCE_SHA256" \
+        --version "$version"
+    print "Extracting CrossOver Wine $version"
+    mkdir "$source_dir"
+    tar -xzf "$crossover_source_archive" -C "$source_dir" --strip-components=2 sources/wine
+else
+    print "Cloning Wine $wine_tag"
+    git clone --quiet --depth 1 --branch "$wine_tag" "$WINE_SOURCE" "$source_dir"
+fi
 if $graphics_runtime; then
     print "Cloning DXVK $dxvk_tag and MoltenVK $moltenvk_tag"
     git clone --quiet --depth 1 --branch "$dxvk_tag" --recursive "$DXVK_SOURCE" "$dxvk_source_dir"
@@ -213,7 +243,9 @@ verify_revision() {
         exit 1
     }
 }
-verify_revision "$source_dir" "$wine_revision"
+if [[ -z "$crossover_source_archive" ]]; then
+    verify_revision "$source_dir" "$wine_revision"
+fi
 if $graphics_runtime; then
     verify_revision "$dxvk_source_dir" "$dxvk_revision"
     verify_revision "$moltenvk_source_dir" "$moltenvk_revision"
@@ -384,9 +416,14 @@ else
     /usr/libexec/PlistBuddy -c 'Add :version:build string' "$version_plist"
 fi
 
-/usr/libexec/PlistBuddy -c "Add :wineSource string $WINE_SOURCE" "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :wineSource string $wine_source" "$provenance_plist"
 /usr/libexec/PlistBuddy -c "Add :wineTag string $wine_tag" "$provenance_plist"
-/usr/libexec/PlistBuddy -c "Add :wineRevision string $(git -C "$source_dir" rev-parse HEAD)" "$provenance_plist"
+/usr/libexec/PlistBuddy -c "Add :wineDistribution string $wine_distribution" "$provenance_plist"
+if [[ -n "$crossover_source_archive" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :wineSourceArchiveSHA256 string $CROSSOVER_WINE_SOURCE_SHA256" "$provenance_plist"
+else
+    /usr/libexec/PlistBuddy -c "Add :wineRevision string $(git -C "$source_dir" rev-parse HEAD)" "$provenance_plist"
+fi
 /usr/libexec/PlistBuddy -c 'Add :wineLicense string LGPL-2.1-or-later' "$provenance_plist"
 /usr/libexec/PlistBuddy -c "Add :architecture string $architecture" "$provenance_plist"
 /usr/libexec/PlistBuddy -c 'Add :runtimeDependencySource string Homebrew' "$provenance_plist"
