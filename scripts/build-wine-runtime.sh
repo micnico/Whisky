@@ -95,6 +95,10 @@ if [[ -n "$crossover_source_archive" ]]; then
     crossover_source_archive="${crossover_source_archive:A}"
     wine_source="$CROSSOVER_WINE_SOURCE"
     wine_distribution=crossover
+    if [[ "$architecture" != "x86_64" ]]; then
+        print -u2 -- "The CrossOver 26.3 D3DMetal bridge is an x86_64/Rosetta runtime."
+        exit 2
+    fi
 fi
 if [[ "$(uname -m)" != "$architecture" ]]; then
     print -u2 -- "Build this runtime with: arch -$architecture $SCRIPT_NAME ..."

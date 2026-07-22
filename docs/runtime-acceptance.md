@@ -2,7 +2,7 @@
 
 Publish a runtime only when its archive, manifest, provenance, Developer ID signature, and smoke-test record are available together. Do not overwrite the legacy runtime or make an unverified archive the default.
 
-`scripts/build-wine-runtime.sh` builds either `arm64` (the default) or `x86_64` Wine from official source, records the exact revision and host architecture in `Libraries/WhiskyWineProvenance.plist`, then writes the archive, checksum file, and client manifest. The `x86_64` build must run in an Intel Homebrew environment and enables Wine's `i386,x86_64` WoW64 PE mode; on Apple silicon it runs through Rosetta.
+`scripts/build-wine-runtime.sh` builds either `arm64` (the default) or `x86_64` Wine from official source, records the exact revision and host architecture in `Libraries/WhiskyWineProvenance.plist`, then writes the archive, checksum file, and client manifest. The `x86_64` build must run in an Intel Homebrew environment and enables Wine's `i386,x86_64` WoW64 PE mode; on Apple silicon it runs through Rosetta. The optional CrossOver 26.3 FOSS source route is pinned to its official archive SHA-256 and is x86_64-only because its D3DMetal bridge targets the Rosetta Wine ABI.
 
 ```sh
 scripts/build-wine-runtime.sh \
@@ -11,6 +11,8 @@ scripts/build-wine-runtime.sh \
 ```
 
 Pass both `--dxvk-tag` and `--moltenvk-tag` to build the opt-in DXVK + MoltenVK candidate. Pass the matching full `--wine-revision`, `--dxvk-revision`, and `--moltenvk-revision` values to fail the build if a tag no longer resolves to the reviewed commit. The build records the revisions and writes `WhiskyWineBinaries.sha256`; validate its archive with `scripts/verify-graphics-runtime.sh` before publishing.
+
+For the CrossOver route, first run `Build Graphics Runtime Candidate` with `wine_distribution=crossover`, `architecture=x86_64`, `configure_preflight=true`, and `build_candidate=false`. This downloads and verifies the public source bundle, runs the same dependency closure check used by a build, configures Wine, and compiles only the `win32u` loader probe. A full build remains a separate explicit action. CrossOver candidates use a distinct `cx-26.3-wine-11.0-…` runtime ID and record `wineDistribution=crossover` plus `wineSourceArchiveSHA256`; they never include CrossOver's proprietary application code or Apple binaries.
 
 Candidates without the `architecture` field in `WhiskyWineProvenance.plist` are intentionally rejected. Rebuild them with the current script; do not retag or rename an older archive.
 
@@ -76,7 +78,7 @@ Runtime selection is per Bottle. Metadata written by older Whisky releases has n
 
 For every runtime release, record the source revisions and licenses for Wine, DXVK/DXMT/vkd3d, MoltenVK, and any Apple-provided components. Do not redistribute proprietary CrossOver code or Apple binaries unless their license explicitly permits the chosen distribution.
 
-Use a stable Wine release for the default channel; development releases require a separate opt-in channel. Treat Game Porting Toolkit/D3DMetal as a user-installed optional component until its exact download license has been reviewed for this distribution. Do not add it to a public runtime archive by default. An eventual optional integration must bind a user-selected installation and detected version to the Bottle, never copy Apple binaries, and make disable/rollback explicit.
+Use a stable Wine release for the default channel; development releases require a separate opt-in channel. Treat Game Porting Toolkit/D3DMetal as a user-installed optional component until its exact download license has been reviewed for this distribution. Do not add it to a public runtime archive. The engineering integration binds a user-selected installation and detected version to the Bottle, never copies Apple binaries, and keeps WineD3D and DXVK rollback explicit.
 
 The backend-specific distribution and test gates are in [graphics-backend-policy.md](graphics-backend-policy.md).
 

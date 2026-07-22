@@ -3,6 +3,14 @@ name: Build Graphics Runtime Candidate
 on:
   workflow_dispatch:
     inputs:
+      wine_distribution:
+        description: Wine source distribution
+        required: true
+        default: winehq
+        type: choice
+        options:
+          - winehq
+          - crossover
       architecture:
         description: Runtime host architecture
         required: true
@@ -46,6 +54,11 @@ on:
         required: true
         default: false
         type: boolean
+      configure_preflight:
+        description: Configure Wine and compile the loader probe without a full build
+        required: true
+        default: false
+        type: boolean
       graphics_preflight:
         description: Build and verify DXVK-macOS without building Wine
         required: true
@@ -73,6 +86,10 @@ permissions:
   attestations: write
   id-token: write
 
+env:
+  CROSSOVER_SOURCE_URL: https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz
+  CROSSOVER_SOURCE_SHA256: ac99c8ca4b3848f3e81784135f023df266b61c2345726ea55a50b3e030dd6872
+
 jobs:
   preflight:
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
@@ -84,21 +101,31 @@ jobs:
       - name: Validate selected operation
         run: |
           build_candidate='${{ inputs.build_candidate }}'
+          configure_preflight='${{ inputs.configure_preflight }}'
           graphics_preflight='${{ inputs.graphics_preflight }}'
           repackage_candidate='${{ inputs.repackage_candidate }}'
           source_run_id='${{ inputs.source_artifact_run_id }}'
           source_signed='${{ inputs.source_artifact_signed }}'
+          wine_distribution='${{ inputs.wine_distribution }}'
           [[ "$build_candidate" != true || "$repackage_candidate" != true ]]
+          [[ "$configure_preflight" != true || "$repackage_candidate" != true ]]
           [[ "$build_candidate" != true || -z "$source_run_id" ]]
           [[ "$repackage_candidate" != true || "$graphics_preflight" == true ]]
           [[ "$repackage_candidate" != true || -n "$source_run_id" ]]
           [[ "$repackage_candidate" != true || "$source_signed" != true ]]
+          if [[ "$wine_distribution" == crossover ]]; then
+            [[ '${{ inputs.architecture }}' == x86_64 ]]
+            [[ '${{ inputs.wine_tag }}' == wine-11.0 ]]
+          fi
       - name: Validate pinned revisions
         run: |
           set -euo pipefail
-          for revision in '${{ inputs.wine_revision }}' '${{ inputs.dxvk_revision }}' '${{ inputs.moltenvk_revision }}'; do
+          for revision in '${{ inputs.dxvk_revision }}' '${{ inputs.moltenvk_revision }}'; do
             [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
           done
+          if [[ '${{ inputs.wine_distribution }}' == winehq ]]; then
+            [[ '${{ inputs.wine_revision }}' =~ ^[0-9a-f]{40}$ ]]
+          fi
           source_run_id='${{ inputs.source_artifact_run_id }}'
           [[ -z "$source_run_id" || "$source_run_id" =~ ^[0-9]+$ ]]
           verify_tag_revision() {
@@ -110,25 +137,43 @@ jobs:
               exit 1
             }
           }
-          verify_tag_revision https://gitlab.winehq.org/wine/wine.git '${{ inputs.wine_tag }}' '${{ inputs.wine_revision }}'
+          if [[ '${{ inputs.wine_distribution }}' == winehq ]]; then
+            verify_tag_revision https://gitlab.winehq.org/wine/wine.git '${{ inputs.wine_tag }}' '${{ inputs.wine_revision }}'
+          fi
           verify_tag_revision https://github.com/Gcenx/DXVK-macOS.git '${{ inputs.dxvk_tag }}' '${{ inputs.dxvk_revision }}'
           verify_tag_revision https://github.com/KhronosGroup/MoltenVK.git '${{ inputs.moltenvk_tag }}' '${{ inputs.moltenvk_revision }}'
+      - name: Verify pinned CrossOver source
+        if: ${{ inputs.wine_distribution == 'crossover' }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/crossover-sources.tar.gz"
+          curl --fail --location --silent --show-error "$CROSSOVER_SOURCE_URL" --output "$archive"
+          scripts/verify-crossover-wine-source.sh \
+            --archive "$archive" \
+            --sha256 "$CROSSOVER_SOURCE_SHA256" \
+            --version 11.0
       - name: Install configure preflight dependencies
-        if: ${{ inputs.build_candidate }}
+        if: ${{ inputs.build_candidate || inputs.configure_preflight }}
         run: >-
           brew install bison llvm lld freetype gnutls libusb libx11 libxext sdl2 sdl3 vulkan-headers vulkan-loader
       - name: Verify bundleable Wine runtime dependencies
-        if: ${{ inputs.build_candidate }}
+        if: ${{ inputs.build_candidate || inputs.configure_preflight }}
         run: scripts/verify-wine-runtime-dependencies.sh --architecture "${{ inputs.architecture }}"
       - name: Prove Wine configure embeds runtime loader paths
-        if: ${{ inputs.build_candidate }}
+        if: ${{ inputs.build_candidate || inputs.configure_preflight }}
         run: |
           set -euo pipefail
           source_dir="$RUNNER_TEMP/wine-configure-source"
           work_dir="$RUNNER_TEMP/wine-configure-loader-paths"
-          git clone --quiet --depth 1 --branch "${{ inputs.wine_tag }}" \
-            https://gitlab.winehq.org/wine/wine.git "$source_dir"
-          test "$(git -C "$source_dir" rev-parse HEAD)" = "${{ inputs.wine_revision }}"
+          if [[ '${{ inputs.wine_distribution }}' == crossover ]]; then
+            mkdir "$source_dir"
+            tar -xzf "$RUNNER_TEMP/crossover-sources.tar.gz" \
+              -C "$source_dir" --strip-components=2 sources/wine
+          else
+            git clone --quiet --depth 1 --branch "${{ inputs.wine_tag }}" \
+              https://gitlab.winehq.org/wine/wine.git "$source_dir"
+            test "$(git -C "$source_dir" rev-parse HEAD)" = "${{ inputs.wine_revision }}"
+          fi
           scripts/verify-wine-configure-loader-paths.sh \
             --source "$source_dir" \
             --workdir "$work_dir" \
@@ -207,17 +252,32 @@ jobs:
       - name: Build candidate
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
           DXVK_TAG: ${{ inputs.dxvk_tag }}
           MOLTENVK_TAG: ${{ inputs.moltenvk_tag }}
         run: |
-          runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          set -euo pipefail
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+            crossover_archive="$RUNNER_TEMP/crossover-sources.tar.gz"
+            curl --fail --location --silent --show-error \
+              "$CROSSOVER_SOURCE_URL" --output "$crossover_archive"
+            scripts/verify-crossover-wine-source.sh \
+              --archive "$crossover_archive" \
+              --sha256 "$CROSSOVER_SOURCE_SHA256" \
+              --version 11.0
+            wine_source_args=(--crossover-source-archive "$crossover_archive")
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+            wine_source_args=(--wine-revision "${{ inputs.wine_revision }}")
+          fi
           signing_args=()
           if [[ -n "${RUNTIME_CODE_SIGN_IDENTITY:-}" ]]; then
             signing_args+=(--code-sign-identity "$RUNTIME_CODE_SIGN_IDENTITY")
           fi
           scripts/build-wine-runtime.sh \
             --wine-tag "$WINE_TAG" \
-            --wine-revision "${{ inputs.wine_revision }}" \
+            "${wine_source_args[@]}" \
             --dxvk-tag "$DXVK_TAG" \
             --dxvk-revision "${{ inputs.dxvk_revision }}" \
             --moltenvk-tag "$MOLTENVK_TAG" \
@@ -264,9 +324,14 @@ jobs:
       - name: Repackage candidate without rebuilding Wine
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
         run: |
           set -euo pipefail
-          runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          fi
           archive_path="$(find "$RUNNER_TEMP/source-runtime-build-output" -type f -name "$runtime_id.tar.gz" -print -quit)"
           test -n "$archive_path"
           scripts/repackage-wine-runtime.sh \
@@ -301,10 +366,15 @@ jobs:
       - name: Restore candidate output path
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
           SOURCE_ARTIFACT_RUN_ID: ${{ inputs.source_artifact_run_id || github.run_id }}
         run: |
           set -euo pipefail
-          runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          fi
           archive_path="$(find "$RUNNER_TEMP/runtime-build-output" -type f -name "$runtime_id.tar.gz" -print -quit)"
           test -n "$archive_path"
           mkdir -p "$RUNNER_TEMP/runtime-output"
@@ -313,10 +383,15 @@ jobs:
       - name: Verify archive
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/runtime-output"
-          runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          fi
           if [[ "$RUNTIME_SIGNED" == "true" ]]; then
             require_developer_id=--require-developer-id
           else
@@ -343,7 +418,12 @@ jobs:
           set -euo pipefail
           provenance="$RUNNER_TEMP/runtime-verify/Libraries/WhiskyWineProvenance.plist"
           test "$(plutil -extract wineTag raw "$provenance")" = '${{ inputs.wine_tag }}'
-          test "$(plutil -extract wineRevision raw "$provenance")" = '${{ inputs.wine_revision }}'
+          test "$(plutil -extract wineDistribution raw "$provenance")" = '${{ inputs.wine_distribution }}'
+          if [[ '${{ inputs.wine_distribution }}' == crossover ]]; then
+            test "$(plutil -extract wineSourceArchiveSHA256 raw "$provenance")" = "$CROSSOVER_SOURCE_SHA256"
+          else
+            test "$(plutil -extract wineRevision raw "$provenance")" = '${{ inputs.wine_revision }}'
+          fi
           test "$(plutil -extract dxvkTag raw "$provenance")" = '${{ inputs.dxvk_tag }}'
           test "$(plutil -extract dxvkRevision raw "$provenance")" = '${{ inputs.dxvk_revision }}'
           expected_patch_hash="$(openssl dgst -sha256 "$GITHUB_WORKSPACE/scripts/patches/dxvk-macos-portability.patch" | awk '{print $NF}')"
@@ -390,9 +470,14 @@ jobs:
       - name: Restore runtime
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
+          WINE_DISTRIBUTION: ${{ inputs.wine_distribution }}
         run: |
           set -euo pipefail
-          runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          if [[ "$WINE_DISTRIBUTION" == crossover ]]; then
+            runtime_id="cx-26.3-$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          else
+            runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
+          fi
           smoke_dir="$RUNNER_TEMP/runtime-smoke"
           mkdir "$smoke_dir"
           tar -C "$smoke_dir" -xzf "$RUNNER_TEMP/runtime-output/$runtime_id.tar.gz"
