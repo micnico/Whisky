@@ -117,6 +117,10 @@ jobs:
             [[ '${{ inputs.architecture }}' == x86_64 ]]
             [[ '${{ inputs.wine_tag }}' == wine-11.0 ]]
           fi
+      - name: Reject nounset-unsafe empty Bash arrays
+        run: >-
+          ! grep -nE '^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=\(\)$'
+          .github/workflows/BuildGraphicsRuntime.yml
       - name: Validate pinned revisions
         run: |
           set -euo pipefail
@@ -174,17 +178,16 @@ jobs:
               https://gitlab.winehq.org/wine/wine.git "$source_dir"
             test "$(git -C "$source_dir" rev-parse HEAD)" = "${{ inputs.wine_revision }}"
           fi
-          winemac_args=()
+          winemac_args=(--jobs 3)
           if [[ '${{ inputs.wine_distribution }}' == crossover ]]; then
-            winemac_args=(--compile-winemac)
+            winemac_args=(--compile-winemac --jobs 3)
           fi
           scripts/verify-wine-configure-loader-paths.sh \
             --source "$source_dir" \
             --workdir "$work_dir" \
             --architecture "${{ inputs.architecture }}" \
             --compile-win32u \
-            "${winemac_args[@]}" \
-            --jobs 3
+            "${winemac_args[@]}"
   graphics-preflight:
     if: ${{ inputs.graphics_preflight || inputs.build_candidate }}
     needs: preflight
@@ -276,10 +279,7 @@ jobs:
             runtime_id="$WINE_TAG-dxvk-moltenvk-${{ inputs.architecture }}"
             wine_source_args=(--wine-revision "${{ inputs.wine_revision }}")
           fi
-          signing_args=()
-          if [[ -n "${RUNTIME_CODE_SIGN_IDENTITY:-}" ]]; then
-            signing_args+=(--code-sign-identity "$RUNTIME_CODE_SIGN_IDENTITY")
-          fi
+          signing_args=(--code-sign-identity "${RUNTIME_CODE_SIGN_IDENTITY:--}")
           scripts/build-wine-runtime.sh \
             --wine-tag "$WINE_TAG" \
             "${wine_source_args[@]}" \
@@ -495,7 +495,7 @@ jobs:
         env:
           WINE_TAG: ${{ inputs.wine_tag }}
         run: |
-          wine_arch=()
+          wine_arch=(env)
           [[ '${{ inputs.architecture }}' != x86_64 ]] || wine_arch=(arch -x86_64)
           test "$("${wine_arch[@]}" "$WINE" --version)" = "$WINE_TAG"
       - id: metal
@@ -526,7 +526,7 @@ jobs:
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/wineboot-smoke.log"
-          wine_arch=()
+          wine_arch=(env)
           [[ '${{ inputs.architecture }}' != x86_64 ]] || wine_arch=(arch -x86_64)
           WINEDLLOVERRIDES="mscoree,mshtml=" "${wine_arch[@]}" "$WINE" wineboot.exe -u 2>&1 | tee "$log"
           if grep -Eq 'invalid \.so library|NSInternalInconsistencyException|libc\+\+abi: terminating|process_send_command receiving command result timed out' "$log"; then
@@ -538,7 +538,7 @@ jobs:
         timeout-minutes: 4
         run: |
           set -euo pipefail
-          wine_arch=()
+          wine_arch=(env)
           [[ '${{ inputs.architecture }}' != x86_64 ]] || wine_arch=(arch -x86_64)
           i686-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-win32.c" \
             -o "$SMOKE_DIR/smoke-win32.exe"
@@ -558,7 +558,7 @@ jobs:
             "$vulkan_dir/libvulkan.1.dylib" \
             -Wl,-rpath,"$vulkan_dir" \
             -o "$SMOKE_DIR/smoke-vulkan"
-          vulkan_arch=()
+          vulkan_arch=(env)
           [[ '${{ inputs.architecture }}' != x86_64 ]] || vulkan_arch=(arch -x86_64)
           MVK_CONFIG_DEBUG=1 MVK_CONFIG_LOG_LEVEL=4 MVK_CONFIG_TRACE_VULKAN_CALLS=1 \
             VK_LOADER_DEBUG=error,warn,driver "${vulkan_arch[@]}" "$SMOKE_DIR/smoke-vulkan" \
@@ -568,7 +568,7 @@ jobs:
         timeout-minutes: 4
         run: |
           set -euo pipefail
-          wine_arch=()
+          wine_arch=(env)
           [[ '${{ inputs.architecture }}' != x86_64 ]] || wine_arch=(arch -x86_64)
           x86_64-w64-mingw32-gcc "$GITHUB_WORKSPACE/scripts/fixtures/smoke-d3d11.c" \
             -o "$SMOKE_DIR/smoke-d3d11.exe" -ld3d11 -ldxgi
