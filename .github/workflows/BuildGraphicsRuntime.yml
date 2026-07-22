@@ -95,7 +95,7 @@ jobs:
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Confirm requested runner architecture
         run: test "$(uname -m)" = "${{ inputs.architecture }}"
       - name: Validate selected operation
@@ -191,7 +191,7 @@ jobs:
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install DXVK-macOS build dependencies
         run: brew install meson ninja mingw-w64 glslang
       - name: Build and verify DXVK-macOS
@@ -219,7 +219,7 @@ jobs:
     outputs:
       runtime_signed: ${{ steps.runtime_metadata.outputs.runtime_signed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           name: dxvk-macos-preflight
@@ -313,7 +313,7 @@ jobs:
     runs-on: ${{ inputs.architecture == 'x86_64' && 'macos-15-intel' || 'macos-14' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           name: wine-graphics-runtime-build-output
@@ -361,7 +361,7 @@ jobs:
     env:
       RUNTIME_SIGNED: ${{ inputs.source_artifact_run_id != '' && inputs.source_artifact_signed || needs.build.outputs.runtime_signed || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           name: wine-graphics-runtime-build-output
@@ -463,7 +463,7 @@ jobs:
       matrix:
         phase: [wineboot, wow64, graphics]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Confirm Apple Silicon smoke host
         run: |
           test "$(uname -m)" = arm64
